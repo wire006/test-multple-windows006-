@@ -97,59 +97,73 @@ struct PDFKitView: UIViewRepresentable {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         view.document = PDFDocument(url: url)
-        view.refitWidth()   // 新しい文書に合わせて幅フィットし直す
+        view.prepare()   // 本文幅にクロップして幅フィット
     }
 }
 
-// MARK: - ページ幅を常にペイン幅に合わせる PDFView
+// MARK: - 本文だけを切り出してペイン幅に合わせる PDFView
 //
-// 縦長ページを短いペインに入れても文字が小さくならないよう、ページ幅を
-// ペイン幅いっぱいに拡大する（高さははみ出して縦スクロールで読む）。
+// ページ余白が広い PDF は、ページ幅に合わせても本文が細く・見切れやすい。
+// そこで各ページを「本文（テキスト）の左右端」でクロップし、そのクロップ幅を
+// ペイン幅に一致させる。これで本文が中央そろえで幅いっぱいになり、見切れない。
 final class WidthFitPDFView: PDFView {
     private var lastFitWidth: CGFloat = -1
-    private var cachedContentWidth: CGFloat?
-    private let sideMargin: CGFloat = 8            // 左右にこれだけ余白（小さいほど本文が幅いっぱい）
+    private var cropWidth: CGFloat?     // クロップ後の共通ページ幅
 
-    /// 新しい文書に切り替えたら呼ぶ（次のレイアウトで再フィット）
-    func refitWidth() {
+    /// 新しい文書を読み込んだら呼ぶ。本文幅にクロップして再フィット。
+    func prepare() {
+        cropToContent()
         lastFitWidth = -1
-        cachedContentWidth = nil
         setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard bounds.width > 1, let page = document?.page(at: 0) else { return }
-        // 幅が変わったときだけ再フィット（毎回やるとユーザーのピンチズームを打ち消すため）
+        guard bounds.width > 1 else { return }
+        // 幅が変わったときだけ再フィット（ユーザーのピンチズームを毎回打ち消さない）
         if abs(bounds.width - lastFitWidth) < 0.5 { return }
         lastFitWidth = bounds.width
 
-        let pageW = page.bounds(for: .cropBox).width
-        guard pageW > 0 else { return }
-
-        // ページ幅ではなく「本文（テキスト）の幅」に合わせる。
-        // これで余白の広い PDF でも本文がペイン幅いっぱいになる（文書ごとに自動調整）。
-        if cachedContentWidth == nil {
-            var c = textContentWidth(of: page) ?? pageW
-            if c < pageW * 0.2 { c = pageW }        // 念のための下限
-            cachedContentWidth = c
-        }
-        let contentW = cachedContentWidth ?? pageW
-
-        let fit = max(0.05, (bounds.width - sideMargin * 2) / contentW)
+        let w = cropWidth ?? document?.page(at: 0)?.bounds(for: .cropBox).width ?? 0
+        guard w > 0 else { return }
+        let fit = bounds.width / w         // クロップ幅（＝本文幅）をペイン幅に一致
         minScaleFactor = fit * 0.2
         maxScaleFactor = fit * 8
         scaleFactor = fit
     }
 
-    /// ページ内の全テキストを選択し、その境界の幅（＝本文の横幅）を返す
-    private func textContentWidth(of page: PDFPage) -> CGFloat? {
-        guard let doc = page.document else { return nil }
-        let box = page.bounds(for: .cropBox)
-        guard let sel = doc.selection(from: page, at: CGPoint(x: box.minX, y: box.maxY),
-                                      to: page, at: CGPoint(x: box.maxX, y: box.minY)) else { return nil }
-        if let s = sel.string, s.isEmpty { return nil }
-        let w = sel.bounds(for: page).width
-        return w > 1 ? w : nil
+    /// 先頭数ページの本文の左右端を求め、全ページをその範囲にクロップする
+    private func cropToContent() {
+        cropWidth = nil
+        guard let doc = document else { return }
+
+        var minX = CGFloat.greatestFiniteMagnitude
+        var maxX = -CGFloat.greatestFiniteMagnitude
+        for i in 0..<min(8, doc.pageCount) {
+            guard let page = doc.page(at: i) else { continue }
+            let box = page.bounds(for: .mediaBox)
+            guard let sel = doc.selection(from: page, at: CGPoint(x: box.minX, y: box.maxY),
+                                          to: page, at: CGPoint(x: box.maxX, y: box.minY)),
+                  let s = sel.string, !s.isEmpty else { continue }
+            let b = sel.bounds(for: page)
+            minX = min(minX, b.minX)
+            maxX = max(maxX, b.maxX)
+        }
+        guard minX < maxX else { return }   // 選択できるテキストが無い（画像PDF等）→ クロップしない
+
+        let pad: CGFloat = 6
+        var width: CGFloat = 0
+        for i in 0..<doc.pageCount {
+            guard let page = doc.page(at: i) else { continue }
+            let media = page.bounds(for: .mediaBox)
+            let x0 = max(media.minX, minX - pad)
+            let x1 = min(media.maxX, maxX + pad)
+            guard x1 > x0 else { continue }
+            page.setBounds(CGRect(x: x0, y: media.minY, width: x1 - x0, height: media.height),
+                           for: .cropBox)
+            width = x1 - x0
+        }
+        cropWidth = width > 1 ? width : nil
+        layoutDocumentView()
     }
 }
