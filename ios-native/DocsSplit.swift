@@ -107,6 +107,7 @@ struct PDFKitView: UIViewRepresentable {
 // ペイン幅いっぱいに拡大する（高さははみ出して縦スクロールで読む）。
 final class WidthFitPDFView: PDFView {
     private var lastFitWidth: CGFloat = -1
+    private let widthZoom: CGFloat = 1.5   // 幅フィットに対する倍率（大きいほど文字が大きい）
 
     /// 新しい文書に切り替えたら呼ぶ（次のレイアウトで再フィット）
     func refitWidth() {
@@ -123,9 +124,9 @@ final class WidthFitPDFView: PDFView {
 
         let pageWidth = page.bounds(for: .cropBox).width
         guard pageWidth > 0 else { return }
-        let fit = max(0.05, (bounds.width - 8) / pageWidth)   // 左右に少し余白
-        minScaleFactor = fit * 0.25
-        maxScaleFactor = fit * 6
-        scaleFactor = fit
+        let fitWidth = bounds.width / pageWidth      // 余白なしで幅にフィット
+        minScaleFactor = fitWidth * 0.25
+        maxScaleFactor = fitWidth * 8
+        scaleFactor = fitWidth * widthZoom           // その1.5倍まで拡大（文字を大きく）
     }
 }
