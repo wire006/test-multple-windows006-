@@ -107,11 +107,13 @@ struct PDFKitView: UIViewRepresentable {
 // ペイン幅いっぱいに拡大する（高さははみ出して縦スクロールで読む）。
 final class WidthFitPDFView: PDFView {
     private var lastFitWidth: CGFloat = -1
-    private let widthZoom: CGFloat = 1.5   // 幅フィットに対する倍率（大きいほど文字が大きい）
+    private var cachedContentWidth: CGFloat?
+    private let sideMargin: CGFloat = 8            // 左右にこれだけ余白（小さいほど本文が幅いっぱい）
 
     /// 新しい文書に切り替えたら呼ぶ（次のレイアウトで再フィット）
     func refitWidth() {
         lastFitWidth = -1
+        cachedContentWidth = nil
         setNeedsLayout()
     }
 
@@ -122,11 +124,32 @@ final class WidthFitPDFView: PDFView {
         if abs(bounds.width - lastFitWidth) < 0.5 { return }
         lastFitWidth = bounds.width
 
-        let pageWidth = page.bounds(for: .cropBox).width
-        guard pageWidth > 0 else { return }
-        let fitWidth = bounds.width / pageWidth      // 余白なしで幅にフィット
-        minScaleFactor = fitWidth * 0.25
-        maxScaleFactor = fitWidth * 8
-        scaleFactor = fitWidth * widthZoom           // その1.5倍まで拡大（文字を大きく）
+        let pageW = page.bounds(for: .cropBox).width
+        guard pageW > 0 else { return }
+
+        // ページ幅ではなく「本文（テキスト）の幅」に合わせる。
+        // これで余白の広い PDF でも本文がペイン幅いっぱいになる（文書ごとに自動調整）。
+        if cachedContentWidth == nil {
+            var c = textContentWidth(of: page) ?? pageW
+            if c < pageW * 0.2 { c = pageW }        // 念のための下限
+            cachedContentWidth = c
+        }
+        let contentW = cachedContentWidth ?? pageW
+
+        let fit = max(0.05, (bounds.width - sideMargin * 2) / contentW)
+        minScaleFactor = fit * 0.2
+        maxScaleFactor = fit * 8
+        scaleFactor = fit
+    }
+
+    /// ページ内の全テキストを選択し、その境界の幅（＝本文の横幅）を返す
+    private func textContentWidth(of page: PDFPage) -> CGFloat? {
+        guard let doc = page.document else { return nil }
+        let box = page.bounds(for: .cropBox)
+        guard let sel = doc.selection(from: page, at: CGPoint(x: box.minX, y: box.maxY),
+                                      to: page, at: CGPoint(x: box.maxX, y: box.minY)) else { return nil }
+        if let s = sel.string, s.isEmpty { return nil }
+        let w = sel.bounds(for: page).width
+        return w > 1 ? w : nil
     }
 }
