@@ -21,14 +21,26 @@ iPhone 13 で「別々のアプリを上下2分割で同時表示したい」と
 | パス | 内容 |
 |------|------|
 | [`docs/APPROACHES.md`](docs/APPROACHES.md) | 全アプローチの詳細比較（メリット・制約・工数・費用） |
-| [`web-pwa/`](web-pwa/) | **案B**: コード最小・Xcode不要。HTMLの2ペイン（iframe）をホーム画面に追加して使う |
-| [`ios-native/`](ios-native/) | **案A**: SwiftUI で 2 つの WKWebView を上下分割するネイティブアプリの雛形 |
+| [`ios-native/`](ios-native/) | **本命**: SwiftUI ネイティブアプリ。1つのアプリで「Claude+Docs」と「MD+PDF」の両方に対応 |
+| [`web-pwa/`](web-pwa/) | 参考: HTMLの2ペイン(iframe)版。埋め込み可能サイト向け（後述の理由で Claude/Docs には不可） |
 
-## 結論（早見）
+## あなたの2つの用途に対する結論
 
-- **一番手軽に試したい / 無料 / 開発者登録なし** → `web-pwa`（案B）
-- **YouTube・X・Gmail 等の主要 Web サービスを本格的に 2 分割で常用したい** → `ios-native`（案A）
-- 2 つの「アプリ」が自作の単純機能なら → フルネイティブ 1 アプリに内包（案C, `docs` 参照）
-- 脱獄によるシステム改変 → **iPhone 13 の現行 iOS では脱獄不可**のため非現実的（`docs` 参照）
+前提: **実機のみで使用** → 無料の Apple ID でビルド可能（7日ごとに再署名）。配布しないので審査の心配なし。
 
-詳しくは [`docs/APPROACHES.md`](docs/APPROACHES.md) を参照してください。
+### 用途A: Claude と Google ドキュメントを分割
+- **iframe/PWA（`web-pwa`）は不可** — Claude も Google ドキュメントも iframe 埋め込みを拒否しているため。
+- **ネイティブアプリ（`ios-native` の「Web」モード）で実現**。ただし注意点:
+  - **Claude**: Google ではなく**メール＋確認コード**でログインすれば問題なし。
+  - **Google ドキュメント**: Google は埋め込みブラウザからのログインを既定でブロックするため、
+    サンプルでは UA を Safari に偽装して回避（実機・個人利用向けの割り切り）。詳細は
+    [`ios-native/README.md`](ios-native/README.md)。
+
+### 用途B: Files 内の MD ファイルと PDF ファイルを分割
+- **ネイティブアプリ（`ios-native` の「ファイル」モード）が最適・最も確実**。
+  ローカルファイルのみで**ログイン問題ゼロ**。PDF は PDFKit 表示、MD は整形表示。
+  選んだファイルは次回起動時に自動復元。
+
+→ **どちらの用途も1つのアプリ（`ios-native`）でカバー**。上部のセグメントで切り替えます。
+
+詳しい比較は [`docs/APPROACHES.md`](docs/APPROACHES.md)、ビルド手順は [`ios-native/README.md`](ios-native/README.md) を参照。

@@ -25,6 +25,7 @@ Xcode も Apple Developer 登録も不要。**数分で試せる**最速の方�
 | OpenStreetMap の埋め込み | ✅ 可 |
 | 自分でホストする Web アプリ / 社内ツール | ✅ 可（設定次第） |
 | X (Twitter) / Gmail / Google 検索 / Instagram 等 | ❌ 不可（埋め込み拒否） |
+| **Claude (claude.ai)** / **Google ドキュメント** | ❌ 不可（埋め込み拒否）→ `ios-native` を使うこと |
 
 → 埋め込み拒否サイトを 2 分割で常用したい場合は、
 本物のブラウザエンジンで開ける **案A（`ios-native`）** を使ってください。

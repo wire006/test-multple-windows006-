@@ -1,44 +1,74 @@
-# 案A: WKWebView 2分割のネイティブアプリ（雛形）
+# 案A: ネイティブ2分割アプリ（実機用・2用途対応）
 
-自作アプリの中に `WKWebView` を上下 2 つ積み、別々の Web サービスを同時表示します。
-`web-pwa`（iframe 版）と違い **本物のブラウザエンジン**なので、
-X-Frame-Options で埋め込み拒否されるサイト（X / Gmail / Google 検索等）も直接開けます。
+1つのアプリで、上部のセグメントを切り替えて2つの用途に対応します。
 
-## セットアップ手順（Xcode）
+| モード | 上ペイン | 下ペイン | ログイン問題 |
+|--------|----------|----------|--------------|
+| **Web (Claude/Docs)** | Claude (claude.ai) | Google ドキュメント | あり（下記） |
+| **ファイル (MD/PDF)** | Markdown ファイル | PDF ファイル | **なし（最も確実）** |
 
-1. Xcode で **File → New → Project → iOS → App** を選択。
-   - Interface: **SwiftUI** / Language: **Swift**
-2. 自動生成された `〇〇App.swift`（`@main` が付いたファイル）を削除するか中身を空にし、
-   本ディレクトリの [`SplitWebView.swift`](SplitWebView.swift) をプロジェクトに追加。
-   （このファイルが `@main struct SplitWebApp` を持っています）
-3. iPhone 13 を USB 接続し、Signing で自分の Apple ID チームを選択して **Run**。
+## ファイル構成
 
-## 費用・署名について
+| ファイル | 役割 |
+|----------|------|
+| `SplitViewApp.swift` | アプリ本体（`@main`）・モード切替・上下分割の共通部品 |
+| `WebSplit.swift` | 用途1: Claude + Google ドキュメント（WKWebView） |
+| `DocsSplit.swift` | 用途2: MD + PDF（Files から選択、PDFKit 表示） |
+| `MarkdownRenderer.swift` | 依存なしの簡易 Markdown → HTML 変換 |
 
-- **無料の Apple ID**: 実機で動くが 7 日で失効 → 再ビルド（再署名）が必要。
-- **Apple Developer Program（年 $99）**: 失効なし。TestFlight 配布や App Store 申請も可能。
+## セットアップ手順（Xcode / 実機のみ）
 
-## 実装のポイント
+1. Xcode で **File → New → Project → iOS → App**（Interface: **SwiftUI**）。
+2. 生成された `〇〇App.swift`（`@main` 付き）を**削除**し、
+   この `ios-native/` 内の **4つの .swift ファイルすべて**をプロジェクトに追加。
+   （`@main` は `SplitViewApp.swift` の 1 箇所だけになるようにする）
+3. iPhone 13 を接続 → Signing で自分の Apple ID チームを選択 → **Run**。
+   - 無料 Apple ID: 実機で動くが **7日で失効**（再ビルドで再署名）。
+   - Apple Developer Program（年 $99）: 失効なし。
+4. 追加の Info.plist 設定は不要（ユーザーが選んだファイルへのアクセスは
+   ファイル選択画面が権限を付与するため）。
 
-| 項目 | 対応 |
-|------|------|
-| リダイレクトによる再読み込みループ | `Coordinator.lastLoaded` で直近 URL を記録し、変化時のみ `load` |
-| 枠内での動画再生 | `allowsInlineMediaPlayback = true` |
-| 端スワイプで戻る/進む | `allowsBackForwardNavigationGestures = true` |
-| 分割比の変更 | 仕切りへの `DragGesture` で上ペイン高さを更新（min/max でクランプ） |
-| キーボードでレイアウトが崩れる | `.ignoresSafeArea(.keyboard)` |
-| URL 入力の自動大文字化/補正 | `.textInputAutocapitalization(.never)` + `.autocorrectionDisabled()` |
+---
 
-## ここから実用化する際の発展
+## 用途1（Claude + Google ドキュメント）のログインについて — 要注意
 
-- 各ペインの URL・分割比を `@AppStorage` で永続化。
-- ペイン毎に「戻る/進む/再読込」ボタンや、レイアウト（上下比）のプリセット保存。
-- 左右分割・入れ替えボタン、ペインの全画面トグル。
-- ログインを跨ぎたいサイト向けに `WKWebsiteDataStore`（Cookie 保持）を明示管理。
-- ネイティブ機能が欲しい部分は WebView をやめ、自作 SwiftUI ビューに置換（案C）。
+**Google は「埋め込みブラウザ(WKWebView)からの Google ログイン」を既定でブロック**します
+（`disallowed_useragent` / 「このブラウザまたはアプリは安全でない可能性があります」）。
 
-## 制約（再掲）
+- **Claude 側**: Google を使わず **メールアドレス＋確認コード**でログインすれば WKWebView でも通ります。→ 実質問題なし。
+- **Google ドキュメント側**: Google ログインが必須。本サンプルでは `WebView.safariUA` で
+  **UA を Safari に偽装**してブロックを回避しています。実務上はこれで通ることが多いですが:
+  - Google の規約上はグレー（**実機・個人利用のみ**という前提での割り切り）。
+  - iOS 更新で UA 文字列の数字更新が必要になる場合あり（`WebSplit.swift` の `safariUA`）。
+  - 一度ログインすれば Cookie は永続化され、次回起動時も維持されます。
+- どうしても Google の制限を避けたい場合、Google ドキュメントの内容を
+  **PDF/MD として書き出して「ファイル」モードで開く**のが最も確実です。
 
-- **Web 版が存在するサービス限定**。ネイティブ専用アプリは取り込めない。
-- Netflix 等の DRM 動画や、`WKWebView` を弾く一部サイトは再生/表示不可の場合あり。
-- あくまで 1 アプリ内の 2 ペイン。CPU / メモリは 1 アプリ分を共有。
+> 補足: `SFSafariViewController` は本物の Safari で Google ログインも通りますが、
+> **全画面モーダル専用で分割表示に使えない**ため、分割には WKWebView が必須です。
+
+---
+
+## 用途2（MD + PDF）について — 最も確実
+
+- 「選択」ボタンで **Files アプリ**から MD / PDF を選ぶ（`.fileImporter`）。
+- **PDF は PDFKit**（`PDFView`）でネイティブ表示、**MD は整形して表示**。
+- 選んだファイルは**セキュリティスコープ付きブックマーク**で保存し、
+  次回起動時に自動復元。
+- ローカルファイルのみなので Web ログインの問題は一切なし。
+
+### Markdown レンダリングの範囲
+
+`MarkdownRenderer.swift` は依存ライブラリなしの簡易実装で、
+**見出し / 箇条書き / 番号付きリスト / 太字・斜体・インラインコード / リンク /
+コードフェンス(```) / 引用 / 水平線 / 段落**をカバーします
+（HTML はエスケープ済みで安全）。表・脚注・ネスト等の完全な CommonMark が必要なら、
+`apple/swift-markdown`（SwiftPM）や `marked.js` に差し替えてください。
+
+---
+
+## 発展（必要に応じて）
+
+- 分割比の記憶（`@AppStorage`）、左右分割/入れ替え、ペイン全画面トグル。
+- Web ペインに 戻る/進む/再読込 ボタン。
+- ファイルモードで、MD の代わりに任意テキストや複数タブ対応。
