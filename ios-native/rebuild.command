@@ -24,10 +24,33 @@ if command -v xcodegen >/dev/null 2>&1; then
   xcodegen generate
 fi
 
+# 署名チームID: ~/.splitview_team を最優先、無ければ Apple Development 証明書(OU)から自動抽出
+TEAM=""
+if [ -f "$HOME/.splitview_team" ]; then
+  TEAM=$(tr -d '[:space:]' < "$HOME/.splitview_team")
+else
+  TEAM=$(security find-certificate -a -c "Apple Development" -p 2>/dev/null \
+    | openssl x509 -noout -subject 2>/dev/null \
+    | grep -oE 'OU *= *[A-Z0-9]{10}' | grep -oE '[A-Z0-9]{10}' | head -1)
+fi
+
+if [ -z "$TEAM" ]; then
+  echo ""
+  echo "⚠️ 署名チームが見つかりません。初回だけ Xcode で署名を作成してください:"
+  echo "   1) Xcode → Settings → Accounts で Apple ID を追加"
+  echo "   2) open \"$PROJECT_DIR/SplitView.xcodeproj\""
+  echo "   3) SplitView ターゲット → Signing & Capabilities →"
+  echo "      「Automatically manage signing」にチェック＆「Team」を選択（証明書が作られます）"
+  echo "   その後このショートカットを再実行すれば、以降は自動で署名します。"
+  echo "   （Team ID が分かっている場合: echo あなたの10桁ID > ~/.splitview_team ）"
+  exit 1
+fi
+echo "▶ 署名チーム: $TEAM"
+
 echo "▶ iPhone 向けにビルド（署名あり）..."
 xcodebuild -project SplitView.xcodeproj -scheme SplitView -configuration Debug \
   -sdk iphoneos -destination 'generic/platform=iOS' -allowProvisioningUpdates \
-  PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" -derivedDataPath build build
+  DEVELOPMENT_TEAM="$TEAM" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" -derivedDataPath build build
 
 APP="build/Build/Products/Debug-iphoneos/SplitView.app"
 
