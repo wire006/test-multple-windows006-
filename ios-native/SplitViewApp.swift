@@ -91,7 +91,9 @@ struct TwoPaneSplit<First: View, Second: View>: View {
 
             ZStack(alignment: .topLeading) {
                 first
-                    .frame(width: isV ? W : firstAxis, height: isV ? firstAxis : H)
+                    .frame(width: isV ? W : firstAxis, height: isV ? firstAxis : H,
+                           alignment: .topLeading)
+                    .clipped()
                     .offset(x: 0, y: 0)
 
                 if showDivider {
@@ -101,7 +103,9 @@ struct TwoPaneSplit<First: View, Second: View>: View {
                 }
 
                 second
-                    .frame(width: isV ? W : secondAxis, height: isV ? secondAxis : H)
+                    .frame(width: isV ? W : secondAxis, height: isV ? secondAxis : H,
+                           alignment: .topLeading)
+                    .clipped()
                     .offset(x: isV ? 0 : firstAxis + dividerAxis,
                             y: isV ? firstAxis + dividerAxis : 0)
             }

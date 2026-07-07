@@ -169,12 +169,15 @@ struct BrowserPaneView: View {
 
             ZStack(alignment: .top) {
                 WebView(pane: pane)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if pane.isLoading {
                     ProgressView(value: pane.progress)
                         .progressViewStyle(.linear)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 

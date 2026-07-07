@@ -65,7 +65,9 @@ struct PDFPane: View {
         VStack(spacing: 0) {
             PaneBar(title: title, filename: slot.url?.lastPathComponent) { importing = true }
             PDFKitView(url: slot.url)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: [.pdf],
                       allowsMultipleSelection: false) { result in
