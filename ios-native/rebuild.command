@@ -16,6 +16,9 @@ BUNDLE_ID="com.wire006.splitview"   # 署名が通らない時はここを split
 
 cd "$PROJECT_DIR"
 
+echo "▶ 最新のコードを取得 (git pull)..."
+git -C "$PROJECT_DIR" pull --ff-only || echo "（git pull はスキップ／現在のコードでビルドします）"
+
 echo "▶ プロジェクト生成 (xcodegen)..."
 if command -v xcodegen >/dev/null 2>&1; then
   xcodegen generate
