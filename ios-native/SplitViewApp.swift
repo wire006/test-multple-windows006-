@@ -17,7 +17,7 @@ struct SplitViewApp: App {
 
 struct RootView: View {
     enum Mode: Int, CaseIterable, Identifiable {
-        case web, files
+        case files, web          // 先頭 = 既定。PDF を最初に開く
         var id: Int { rawValue }
         var label: String {
             switch self {
@@ -27,7 +27,7 @@ struct RootView: View {
         }
     }
 
-    @State private var mode: Mode = .web
+    @State private var mode: Mode = .files   // 既定は PDF
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,7 +35,7 @@ struct RootView: View {
                 ForEach(Mode.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(6)
+            .padding([.top, .horizontal], 6)   // 下の余白は無し → 上画面がタブのすぐ下から始まる
 
             // 両方を常にマウントしたまま表示だけ切り替える
             // （ブラウザのログインセッションや PDF の選択状態を維持するため）
@@ -60,6 +60,11 @@ enum FullscreenPane { case none, first, second }
 // first / second はビューツリー内で「1回だけ」参照し、向き・全画面の切替では
 // frame と offset の数値だけを変える。こうすると WKWebView が再生成されず、
 // 開いているページ（ログイン状態やスクロール位置）が維持される。
+//
+// 仕切りのドラッグは、コンテナに付けた名前付き座標系での「指の絶対位置」で
+// 割合を決める。仕切り自身の（移動する）座標系で translation を測ると、
+// 仕切りが動く→translation が変わる→さらに動く…と発振して画面が上下に
+// 暴れるため、固定座標系の location を使うことでそれを防いでいる。
 struct TwoPaneSplit<First: View, Second: View>: View {
     let axis: SplitAxis
     let fullscreen: FullscreenPane
@@ -67,8 +72,8 @@ struct TwoPaneSplit<First: View, Second: View>: View {
     @ViewBuilder var first: First
     @ViewBuilder var second: Second
 
-    private let dividerT: CGFloat = 14
-    @State private var dragStart: Double? = nil
+    private let dividerT: CGFloat = 16
+    private let spaceName = "TwoPaneSplitSpace"
 
     var body: some View {
         GeometryReader { geo in
@@ -77,7 +82,7 @@ struct TwoPaneSplit<First: View, Second: View>: View {
             let isV = axis == .vertical
             let showDivider = fullscreen == .none
             let axisTotal = isV ? H : W
-            let usable = max(0, axisTotal - (showDivider ? dividerT : 0))
+            let usable = max(1, axisTotal - (showDivider ? dividerT : 0))
             let clamped = min(max(0.15, fraction), 0.85)
             let firstAxis: CGFloat = fullscreen == .first ? axisTotal
                                    : (fullscreen == .second ? 0 : usable * CGFloat(clamped))
@@ -90,7 +95,7 @@ struct TwoPaneSplit<First: View, Second: View>: View {
                     .offset(x: 0, y: 0)
 
                 if showDivider {
-                    dividerView(total: axisTotal)
+                    dividerView(usable: usable)
                         .frame(width: isV ? W : dividerAxis, height: isV ? dividerAxis : H)
                         .offset(x: isV ? 0 : firstAxis, y: isV ? firstAxis : 0)
                 }
@@ -101,10 +106,11 @@ struct TwoPaneSplit<First: View, Second: View>: View {
                             y: isV ? firstAxis + dividerAxis : 0)
             }
             .frame(width: W, height: H)
+            .coordinateSpace(name: spaceName)
         }
     }
 
-    private func dividerView(total: CGFloat) -> some View {
+    private func dividerView(usable: CGFloat) -> some View {
         ZStack {
             Color(.systemGray5)
             Capsule().fill(Color(.systemGray))
@@ -113,14 +119,12 @@ struct TwoPaneSplit<First: View, Second: View>: View {
         }
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 0)
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(spaceName))
                 .onChanged { value in
-                    if dragStart == nil { dragStart = fraction }
-                    let moved = axis == .vertical ? value.translation.height : value.translation.width
-                    let delta = Double(moved) / Double(max(1, total))
-                    fraction = min(0.85, max(0.15, (dragStart ?? fraction) + delta))
+                    // 指のいる絶対位置（固定座標系）から割合を決定 → 発振しない
+                    let pos = axis == .vertical ? value.location.y : value.location.x
+                    fraction = min(0.85, max(0.15, Double(pos) / Double(usable)))
                 }
-                .onEnded { _ in dragStart = nil }
         )
     }
 }
