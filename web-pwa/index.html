@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<!-- ホーム画面に追加したとき全画面（ブラウザUIなし）で開くための指定 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="2分割">
+<title>上下2分割ビューア</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    height: 100dvh;               /* ノッチ/ホームバー込みの実高さ */
+    display: flex;
+    flex-direction: column;
+    background: #000;
+    color: #eee;
+    font: 14px/1.4 -apple-system, system-ui, sans-serif;
+    /* セーフエリア（ノッチ・ホームインジケータ）を避ける */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    overflow: hidden;
+  }
+  .pane {
+    position: relative;
+    overflow: hidden;
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;                /* flex 子が縮めるように */
+  }
+  #top { height: 45%; }           /* 初期の分割比。JS/ドラッグで上書き */
+  #bottom { flex: 1 1 auto; }
+  .bar {
+    display: flex;
+    gap: 6px;
+    padding: 6px;
+    background: #1c1c1e;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+  .bar input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: none;
+    background: #2c2c2e;
+    color: #fff;
+    font-size: 16px;             /* 16px 未満だと iOS が自動ズームするため */
+  }
+  .bar button {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: none;
+    background: #0a84ff;
+    color: #fff;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+  .divider {
+    flex: 0 0 24px;
+    height: 24px;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: row-resize;
+    touch-action: none;          /* ドラッグ中のスクロールを抑止 */
+  }
+  .divider::before {
+    content: "";
+    width: 48px;
+    height: 5px;
+    border-radius: 3px;
+    background: #666;
+  }
+  /* ドラッグ中は iframe がポインタを奪わないようにする */
+  body.dragging iframe { pointer-events: none; }
+</style>
+</head>
+<body>
+  <section class="pane" id="top">
+    <div class="bar">
+      <input id="url-top" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="上に開くURL">
+      <button data-go="top">開く</button>
+    </div>
+    <iframe id="frame-top" referrerpolicy="no-referrer-when-downgrade" allow="autoplay; encrypted-media; picture-in-picture"></iframe>
+  </section>
+
+  <div class="divider" id="divider" role="separator" aria-orientation="horizontal" aria-label="分割位置を調整"></div>
+
+  <section class="pane" id="bottom">
+    <div class="bar">
+      <input id="url-bottom" type="url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="下に開くURL">
+      <button data-go="bottom">開く</button>
+    </div>
+    <iframe id="frame-bottom" referrerpolicy="no-referrer-when-downgrade" allow="autoplay; encrypted-media; picture-in-picture"></iframe>
+  </section>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const body = document.body;
+  const top = $('#top');
+  const divider = $('#divider');
+  const MIN = 80;      // 各ペインの最小高さ(px)
+  const DIV_H = 24;    // 仕切りの高さ(px)
+
+  // 下ペインの初期表示（埋め込み拒否サイトが多いことを説明するプレースホルダ）
+  const placeholder =
+    'data:text/html;charset=utf-8,' + encodeURIComponent(
+      '<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">' +
+      '<body style="margin:0;font:15px/1.6 -apple-system,system-ui,sans-serif;color:#333;' +
+      'background:#f2f2f7;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center">' +
+      '<div style="max-width:88%"><h2 style="margin:0 0 8px">下のパネル</h2>' +
+      '<p style="margin:0 0 12px">上のURL欄にアドレスを入れて「開く」を押してください。</p>' +
+      '<p style="margin:0;color:#888;font-size:13px">※ X / Gmail / Google検索など一部サイトは' +
+      'セキュリティ設定（X-Frame-Options）により、この方式では表示できません。' +
+      'その場合はネイティブ版（ios-native）をご利用ください。</p></div></body>');
+
+  const defaults = {
+    // YouTube の埋め込みURL(/embed/)は iframe 表示が許可されている
+    top: 'https://www.youtube.com/embed/aqz-KE-bpKQ',
+    bottom: placeholder,
+  };
+
+  function normalize(u) {
+    u = (u || '').trim();
+    if (!u) return '';
+    if (u.startsWith('data:')) return u;
+    if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+    return u;
+  }
+
+  function load(which) {
+    const input = $('#url-' + which);
+    const frame = $('#frame-' + which);
+    const u = normalize(input.value);
+    if (!u) return;
+    frame.src = u;
+    input.value = u;
+    localStorage.setItem('url-' + which, u);
+  }
+
+  document.querySelectorAll('button[data-go]').forEach((b) => {
+    b.addEventListener('click', () => load(b.dataset.go));
+  });
+  document.querySelectorAll('.bar input').forEach((inp) => {
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        load(inp.id.replace('url-', ''));
+        inp.blur();
+      }
+    });
+  });
+
+  // 前回のURL / 分割比を復元
+  ['top', 'bottom'].forEach((w) => {
+    const saved = localStorage.getItem('url-' + w) || defaults[w];
+    $('#url-' + w).value = saved.startsWith('data:') ? '' : saved;
+    $('#frame-' + w).src = saved;
+  });
+  const savedH = parseFloat(localStorage.getItem('topH'));
+  if (savedH) top.style.height = savedH + 'px';
+
+  // 仕切りのドラッグで上下比を変更
+  let dragging = false;
+  function onMove(clientY) {
+    const rect = body.getBoundingClientRect();
+    let h = clientY - rect.top;
+    const maxH = rect.height - DIV_H - MIN;
+    h = Math.max(MIN, Math.min(maxH, h));
+    top.style.height = h + 'px';
+  }
+  divider.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    body.classList.add('dragging');
+    divider.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  divider.addEventListener('pointermove', (e) => { if (dragging) onMove(e.clientY); });
+  function endDrag() {
+    if (!dragging) return;
+    dragging = false;
+    body.classList.remove('dragging');
+    localStorage.setItem('topH', parseFloat(top.style.height));
+  }
+  divider.addEventListener('pointerup', endDrag);
+  divider.addEventListener('pointercancel', endDrag);
+</script>
+</body>
+</html>
