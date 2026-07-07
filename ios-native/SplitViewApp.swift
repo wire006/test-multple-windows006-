@@ -18,17 +18,18 @@ struct SplitViewApp: App {
 
 struct RootView: View {
     enum Mode: Int, CaseIterable, Identifiable {
-        case files, web          // 先頭 = 既定。PDF を最初に開く
+        case text, files, web    // 先頭 = 既定。テキストを最初に開く
         var id: Int { rawValue }
         var label: String {
             switch self {
-            case .web:   return "分割ブラウザ"
+            case .text:  return "テキスト×2"
             case .files: return "PDF×2"
+            case .web:   return "分割ブラウザ"
             }
         }
     }
 
-    @State private var mode: Mode = .files   // 既定は PDF
+    @State private var mode: Mode = .text   // 既定はテキスト
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,12 +42,15 @@ struct RootView: View {
             // 両方を常にマウントしたまま表示だけ切り替える
             // （ブラウザのログインセッションや PDF の選択状態を維持するため）
             ZStack {
-                WebSplit()
-                    .opacity(mode == .web ? 1 : 0)
-                    .allowsHitTesting(mode == .web)
+                TextSplit()
+                    .opacity(mode == .text ? 1 : 0)
+                    .allowsHitTesting(mode == .text)
                 DocsSplit()
                     .opacity(mode == .files ? 1 : 0)
                     .allowsHitTesting(mode == .files)
+                WebSplit()
+                    .opacity(mode == .web ? 1 : 0)
+                    .allowsHitTesting(mode == .web)
             }
         }
     }
