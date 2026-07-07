@@ -72,6 +72,13 @@ xcrun devicectl device process launch --device <UDID> com.wire006.splitview
 > iOS 17 以前の実機では `devicectl` の代わりに `ios-deploy`（`brew install ios-deploy`）:
 > `ios-deploy --bundle build/Build/Products/Debug-iphoneos/SplitView.app`
 
+**再ビルドのショートカット**: `rebuild.command` は、接続中の iPhone を自動検出して
+「生成→ビルド→インストール→起動」を一発で行います（無料 Apple ID の7日失効時の入れ直しに便利）。
+デスクトップに置いてダブルクリックで実行できます:
+```sh
+cp rebuild.command ~/Desktop/ && chmod +x ~/Desktop/rebuild.command
+```
+
 ## セットアップ手順B: Xcode GUI の場合
 
 1. `xcodegen generate` で `SplitView.xcodeproj` を作って開く
