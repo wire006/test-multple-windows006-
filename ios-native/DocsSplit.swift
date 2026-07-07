@@ -12,13 +12,44 @@ import UniformTypeIdentifiers
 struct DocsSplit: View {
     @StateObject private var topSlot = BookmarkSlot(key: "slot.pdf.top")
     @StateObject private var bottomSlot = BookmarkSlot(key: "slot.pdf.bottom")
-    @State private var fraction = 0.5
+    @State private var topFraction: Double = 0.5
 
+    private let dividerH: CGFloat = 16
+    private let space = "DocsSplitSpace"
+
+    // シンプルな VStack で「上ペインを一番上に固定」。
+    // 上ペインは指定した高さぶんを一番上から占め、仕切りをドラッグすると
+    // その高さ（＝下ペインの大きさ）が変わる。中央寄せの余白は出ない。
     var body: some View {
-        TwoPaneSplit(axis: .vertical, fullscreen: .none, fraction: $fraction) {
-            PDFPane(title: "PDF（上）", slot: topSlot)
-        } second: {
-            PDFPane(title: "PDF（下）", slot: bottomSlot)
+        GeometryReader { geo in
+            let usable = max(1, geo.size.height - dividerH)
+            let topH = min(max(120, usable * topFraction), max(120, usable - 120))
+
+            VStack(spacing: 0) {
+                PDFPane(title: "PDF（上）", slot: topSlot)
+                    .frame(height: topH)
+                    .clipped()
+
+                ZStack {
+                    Color(.systemGray5)
+                    Capsule().fill(Color(.systemGray)).frame(width: 44, height: 5)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: dividerH)
+                .contentShape(Rectangle())
+                .gesture(
+                    // 固定座標系での指の絶対位置で高さを決める → 発振しない
+                    DragGesture(minimumDistance: 0, coordinateSpace: .named(space))
+                        .onChanged { v in
+                            topFraction = min(0.85, max(0.15, Double(v.location.y) / Double(usable)))
+                        }
+                )
+
+                PDFPane(title: "PDF（下）", slot: bottomSlot)
+                    .frame(maxHeight: .infinity)
+                    .clipped()
+            }
+            .coordinateSpace(name: space)
         }
     }
 }
