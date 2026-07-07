@@ -12,11 +12,12 @@ import UniformTypeIdentifiers
 struct DocsSplit: View {
     @StateObject private var topSlot = BookmarkSlot(key: "slot.pdf.top")
     @StateObject private var bottomSlot = BookmarkSlot(key: "slot.pdf.bottom")
+    @State private var fraction = 0.5
 
     var body: some View {
-        VerticalSplit {
+        TwoPaneSplit(axis: .vertical, fullscreen: .none, fraction: $fraction) {
             PDFPane(title: "PDF（上）", slot: topSlot)
-        } bottom: {
+        } second: {
             PDFPane(title: "PDF（下）", slot: bottomSlot)
         }
     }
