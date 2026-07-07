@@ -4,7 +4,7 @@
 name: SplitView
 
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: com.wire006
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -19,7 +19,7 @@ targets:
           - "*.swift"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.SplitView
+        PRODUCT_BUNDLE_IDENTIFIER: com.wire006.splitview
         PRODUCT_NAME: SplitView
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"

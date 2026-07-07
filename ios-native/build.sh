@@ -31,5 +31,5 @@ xcodebuild -project SplitView.xcodeproj -scheme SplitView \
 APP="build/Build/Products/Debug-iphonesimulator/SplitView.app"
 echo "▶ インストール＆起動..."
 xcrun simctl install "$DEVICE" "$APP"
-xcrun simctl launch "$DEVICE" com.example.SplitView
+xcrun simctl launch "$DEVICE" com.wire006.splitview
 echo "✅ 完了（シミュレータで起動しました）"

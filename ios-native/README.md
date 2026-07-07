@@ -64,7 +64,7 @@ xcodebuild -project SplitView.xcodeproj -scheme SplitView \
 xcrun devicectl list devices
 xcrun devicectl device install app --device <UDID> \
   build/Build/Products/Debug-iphoneos/SplitView.app
-xcrun devicectl device process launch --device <UDID> com.example.SplitView
+xcrun devicectl device process launch --device <UDID> com.wire006.splitview
 ```
 - 無料 Apple ID は **7日で失効**（再ビルド／再インストールで更新）。初回起動時は
   iPhone の「設定 → 一般 → VPN とデバイス管理」で自分の開発者証明書を信頼。
