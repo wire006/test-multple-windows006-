@@ -17,25 +17,15 @@ struct WebSplit: View {
     @StateObject private var bottom = BrowserPane(storageKey: "web.url.bottom",
                                                   initial: "https://docs.google.com/document/u/0/")
     @StateObject private var bookmarks = BookmarkStore()
-
-    @AppStorage("web.axis") private var axisRaw = SplitAxis.vertical.rawValue
-    @AppStorage("web.fraction") private var fraction = 0.5
-    @State private var fullscreen: FullscreenPane = .none
     @State private var showManage = false
-
-    private var axis: SplitAxis { SplitAxis(rawValue: axisRaw) ?? .vertical }
 
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            TwoPaneSplit(axis: axis, fullscreen: fullscreen, fraction: $fraction) {
-                BrowserPaneView(pane: top, isFullscreen: fullscreen == .first) {
-                    fullscreen = (fullscreen == .first) ? .none : .first
-                }
-            } second: {
-                BrowserPaneView(pane: bottom, isFullscreen: fullscreen == .second) {
-                    fullscreen = (fullscreen == .second) ? .none : .second
-                }
+            VSplit {
+                BrowserPaneView(pane: top)
+            } bottom: {
+                BrowserPaneView(pane: bottom)
             }
         }
         .sheet(isPresented: $showManage) { manageSheet }
@@ -44,18 +34,8 @@ struct WebSplit: View {
     // MARK: 上部の操作バー
     private var controlBar: some View {
         HStack(spacing: 18) {
-            Button {
-                axisRaw = (axis == .vertical ? SplitAxis.horizontal : .vertical).rawValue
-            } label: {
-                Image(systemName: axis == .vertical ? "rectangle.split.1x2" : "rectangle.split.2x1")
-            }
             Button { swapPanes() } label: {
                 Image(systemName: "arrow.up.arrow.down")
-            }
-            if fullscreen != .none {
-                Button { fullscreen = .none } label: {
-                    Image(systemName: "arrow.down.forward.and.arrow.up.backward")
-                }
             }
 
             Spacer()
@@ -118,7 +98,6 @@ struct WebSplit: View {
     private func apply(_ pair: BookmarkPair) {
         top.load(pair.top)
         bottom.load(pair.bottom)
-        fullscreen = .none
     }
     private func saveCurrent() {
         let name = "\(hostName(top.current)) / \(hostName(bottom.current))"
@@ -132,8 +111,6 @@ struct WebSplit: View {
 // MARK: - 1ペインの UI（ツールバー + WebView + プログレス）
 struct BrowserPaneView: View {
     @ObservedObject var pane: BrowserPane
-    let isFullscreen: Bool
-    let onToggleFullscreen: () -> Void
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -155,11 +132,6 @@ struct BrowserPaneView: View {
 
                 Button(action: pane.reloadOrStop) {
                     Image(systemName: pane.isLoading ? "xmark" : "arrow.clockwise")
-                }
-                Button(action: onToggleFullscreen) {
-                    Image(systemName: isFullscreen
-                          ? "arrow.down.forward.and.arrow.up.backward"
-                          : "arrow.up.left.and.arrow.down.right")
                 }
             }
             .font(.system(size: 16))
