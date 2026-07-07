@@ -2,22 +2,22 @@ import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
 
-// MARK: - 用途2: Files に保存した MD と PDF を上下2分割
+// MARK: - 用途2: Files に保存した PDF を2つ、上下2分割で表示
 //
-// ・上ペイン: Markdown ファイル（.md / .markdown / .txt）を選んで整形表示
-// ・下ペイン: PDF ファイルを PDFKit で表示
-// ・Web ログインの問題は一切なし（ローカルファイルのみ）。実機で最も確実に動く用途。
-// ・選んだファイルは「セキュリティスコープ付きブックマーク」で保存し、次回起動時も復元します。
+// ・上下それぞれ独立に PDF を選択（「選択」ボタン → Files アプリ）
+// ・PDFKit(PDFView) でネイティブ表示。ペインごとに独立してスクロール/ズームできる
+// ・選んだファイルは「セキュリティスコープ付きブックマーク」で保存し、次回起動時に復元
+// ・ローカルファイルのみなので Web ログインの問題は一切なし（実機で最も確実な用途）
 
 struct DocsSplit: View {
-    @StateObject private var mdSlot = BookmarkSlot(key: "slot.markdown")
-    @StateObject private var pdfSlot = BookmarkSlot(key: "slot.pdf")
+    @StateObject private var topSlot = BookmarkSlot(key: "slot.pdf.top")
+    @StateObject private var bottomSlot = BookmarkSlot(key: "slot.pdf.bottom")
 
     var body: some View {
         VerticalSplit {
-            MarkdownPane(slot: mdSlot)
+            PDFPane(title: "PDF（上）", slot: topSlot)
         } bottom: {
-            PDFPane(slot: pdfSlot)
+            PDFPane(title: "PDF（下）", slot: bottomSlot)
         }
     }
 }
@@ -54,54 +54,15 @@ final class BookmarkSlot: ObservableObject {
     }
 }
 
-// MARK: - Markdown ペイン
-struct MarkdownPane: View {
-    @ObservedObject var slot: BookmarkSlot
-    @State private var page = MarkdownRenderer.page(from: "MDファイルを「選択」してください。")
-    @State private var importing = false
-
-    private static let mdTypes: [UTType] = [
-        .plainText, .text,
-        UTType(filenameExtension: "md") ?? .plainText,
-        UTType(filenameExtension: "markdown") ?? .plainText,
-    ]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            PaneBar(title: "Markdown", filename: slot.url?.lastPathComponent) { importing = true }
-            HTMLView(html: page)
-        }
-        .fileImporter(isPresented: $importing,
-                      allowedContentTypes: Self.mdTypes,
-                      allowsMultipleSelection: false) { result in
-            if case .success(let urls) = result, let u = urls.first {
-                slot.set(u)
-            }
-        }
-        .onAppear(perform: reload)
-        .onChange(of: slot.url) { _ in reload() }
-    }
-
-    private func reload() {
-        guard let u = slot.url else { return }
-        let accessing = u.startAccessingSecurityScopedResource()
-        defer { if accessing { u.stopAccessingSecurityScopedResource() } }
-        if let text = try? String(contentsOf: u, encoding: .utf8) {
-            page = MarkdownRenderer.page(from: text)
-        } else {
-            page = MarkdownRenderer.page(from: "読み込みに失敗しました。\niCloud 上のファイルは未ダウンロードだと読めない場合があります。")
-        }
-    }
-}
-
-// MARK: - PDF ペイン
+// MARK: - PDF ペイン（選択バー + PDFView）
 struct PDFPane: View {
+    let title: String
     @ObservedObject var slot: BookmarkSlot
     @State private var importing = false
 
     var body: some View {
         VStack(spacing: 0) {
-            PaneBar(title: "PDF", filename: slot.url?.lastPathComponent) { importing = true }
+            PaneBar(title: title, filename: slot.url?.lastPathComponent) { importing = true }
             PDFKitView(url: slot.url)
         }
         .fileImporter(isPresented: $importing,
@@ -111,26 +72,6 @@ struct PDFPane: View {
                 slot.set(u)
             }
         }
-    }
-}
-
-// MARK: - HTML（整形済み Markdown）を表示する WKWebView
-struct HTMLView: UIViewRepresentable {
-    let html: String
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator { var last: String? }
-
-    func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
-        return webView
-    }
-
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        guard context.coordinator.last != html else { return }
-        context.coordinator.last = html
-        webView.loadHTMLString(html, baseURL: nil)
     }
 }
 

@@ -24,7 +24,7 @@ struct RootView: View {
         var label: String {
             switch self {
             case .web:   return "Web (Claude/Docs)"
-            case .files: return "ファイル (MD/PDF)"
+            case .files: return "ファイル (PDF×2)"
             }
         }
     }
