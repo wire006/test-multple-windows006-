@@ -81,9 +81,9 @@ struct PDFPane: View {
 struct PDFKitView: UIViewRepresentable {
     let url: URL?
 
-    func makeUIView(context: Context) -> PDFView {
-        let view = PDFView()
-        view.autoScales = true
+    func makeUIView(context: Context) -> WidthFitPDFView {
+        let view = WidthFitPDFView()
+        view.autoScales = false          // 幅フィットは自前で行う（全体縮小を避ける）
         // モバイルWebのように、縦スクロールだけで全ページを連続して読める設定
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
@@ -91,11 +91,41 @@ struct PDFKitView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: PDFView, context: Context) {
+    func updateUIView(_ view: WidthFitPDFView, context: Context) {
         guard let url else { return }
         guard view.document?.documentURL != url else { return }
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         view.document = PDFDocument(url: url)
+        view.refitWidth()   // 新しい文書に合わせて幅フィットし直す
+    }
+}
+
+// MARK: - ページ幅を常にペイン幅に合わせる PDFView
+//
+// 縦長ページを短いペインに入れても文字が小さくならないよう、ページ幅を
+// ペイン幅いっぱいに拡大する（高さははみ出して縦スクロールで読む）。
+final class WidthFitPDFView: PDFView {
+    private var lastFitWidth: CGFloat = -1
+
+    /// 新しい文書に切り替えたら呼ぶ（次のレイアウトで再フィット）
+    func refitWidth() {
+        lastFitWidth = -1
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 1, let page = document?.page(at: 0) else { return }
+        // 幅が変わったときだけ再フィット（毎回やるとユーザーのピンチズームを打ち消すため）
+        if abs(bounds.width - lastFitWidth) < 0.5 { return }
+        lastFitWidth = bounds.width
+
+        let pageWidth = page.bounds(for: .cropBox).width
+        guard pageWidth > 0 else { return }
+        let fit = max(0.05, (bounds.width - 8) / pageWidth)   // 左右に少し余白
+        minScaleFactor = fit * 0.25
+        maxScaleFactor = fit * 6
+        scaleFactor = fit
     }
 }
