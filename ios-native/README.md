@@ -14,17 +14,69 @@
 | `SplitViewApp.swift` | アプリ本体（`@main`）・モード切替・**汎用2分割コンテナ**（上下/左右・全画面・ドラッグ仕切り） |
 | `WebSplit.swift` | 分割ブラウザ（アドレスバー・戻る/進む・ブックマーク等） |
 | `DocsSplit.swift` | PDF × 2（Files から選択、PDFKit 表示） |
+| `project.yml` | XcodeGen 用。`.xcodeproj` を生成するための定義（ターミナルビルド用） |
+| `build.sh` | ダウンロード後にシミュレータへビルド＆起動する一発スクリプト |
 
-## セットアップ手順（Xcode / 実機のみ）
+## セットアップ手順A: ターミナルだけで（ダウンロード〜ビルド）
 
-1. Xcode で **File → New → Project → iOS → App**（Interface: **SwiftUI**）。
-2. 生成された `〇〇App.swift`（`@main` 付き）を**削除**し、
-   この `ios-native/` 内の **3つの .swift ファイルすべて**をプロジェクトに追加。
-   （`@main` は `SplitViewApp.swift` の 1 箇所だけになるようにする）
-3. iPhone 13 を接続 → Signing で自分の Apple ID チームを選択 → **Run**。
-   - 無料 Apple ID: 実機で動くが **7日で失効**（再ビルドで再署名）。
-   - Apple Developer Program（年 $99）: 失効なし。
-4. 追加の Info.plist 設定は不要。
+ソースは loose な .swift だけなので、`xcodebuild` の前に **XcodeGen**（`project.yml`）で
+`.xcodeproj` を生成します。
+
+**前提（Mac mini + Xcode）**
+- Xcode を一度起動してライセンス同意（または `sudo xcodebuild -license accept`）。
+- `sudo xcode-select -s /Applications/Xcode.app`
+- Homebrew（未導入なら https://brew.sh の1行）と XcodeGen: `brew install xcodegen`
+
+**1. ダウンロード（このブランチを取得）**
+```sh
+git clone -b claude/iphone-split-screen-approaches-df90pl \
+  https://github.com/wire006/test-multple-windows006-.git
+cd test-multple-windows006-/ios-native
+```
+
+**2. シミュレータでビルド＆起動（署名不要・最短）**
+```sh
+./build.sh
+```
+内部で `xcodegen generate` → `xcodebuild`(iphonesimulator) → `simctl install/launch` を実行します。
+手動で行う場合:
+```sh
+xcodegen generate
+xcodebuild -project SplitView.xcodeproj -scheme SplitView \
+  -configuration Debug -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,name=iPhone 15' \
+  -derivedDataPath build build
+```
+
+**3. 実機（iPhone 13）へインストール（署名が必要）**
+- 初回のみ署名の準備: 生成された `SplitView.xcodeproj` を一度 Xcode で開き、
+  Signing & Capabilities で自分の Apple ID チームと「Automatically manage signing」を選択
+  （＝無料 Apple ID の provisioning を作成。以後はターミナルだけで可）。
+  10桁のチームIDが分かっていれば GUI を使わず次でも可:
+```sh
+xcodebuild -project SplitView.xcodeproj -scheme SplitView \
+  -configuration Debug -sdk iphoneos -destination 'generic/platform=iOS' \
+  -allowProvisioningUpdates DEVELOPMENT_TEAM=あなたの10桁ID \
+  -derivedDataPath build build
+```
+- iPhone を接続し、UDID を確認してインストール・起動（Xcode 15+ の devicectl）:
+```sh
+xcrun devicectl list devices
+xcrun devicectl device install app --device <UDID> \
+  build/Build/Products/Debug-iphoneos/SplitView.app
+xcrun devicectl device process launch --device <UDID> com.example.SplitView
+```
+- 無料 Apple ID は **7日で失効**（再ビルド／再インストールで更新）。初回起動時は
+  iPhone の「設定 → 一般 → VPN とデバイス管理」で自分の開発者証明書を信頼。
+
+> iOS 17 以前の実機では `devicectl` の代わりに `ios-deploy`（`brew install ios-deploy`）:
+> `ios-deploy --bundle build/Build/Products/Debug-iphoneos/SplitView.app`
+
+## セットアップ手順B: Xcode GUI の場合
+
+1. `xcodegen generate` で `SplitView.xcodeproj` を作って開く
+   （または空の SwiftUI App を新規作成し `*.swift` 3ファイルを追加。`@main` は1つに）。
+2. iPhone 13 を接続 → Signing でチーム選択 → **Run**。
 
 ---
 
