@@ -62,12 +62,18 @@ struct RootView: View {
 // その高さ（＝下ペインの大きさ）が変わる。中央寄せの余白は出ない。
 // 仕切りは固定座標系での指の絶対位置で決めるため、発振（画面が上下に暴れる）しない。
 struct VSplit<Top: View, Bottom: View>: View {
-    @ViewBuilder var top: Top
-    @ViewBuilder var bottom: Bottom
-
-    @State private var topFraction: Double = 0.5
+    private let top: Top
+    private let bottom: Bottom
+    private let space: String
+    @AppStorage private var topFraction: Double   // 分割比率を保存（次回起動時に復元）
     private let dividerH: CGFloat = 16
-    private let space = "VSplitSpace"
+
+    init(_ storageKey: String, @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom) {
+        self.top = top()
+        self.bottom = bottom()
+        self.space = "VSplit." + storageKey
+        self._topFraction = AppStorage(wrappedValue: 0.5, "split." + storageKey)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -122,7 +128,7 @@ struct PaneBar: View {
             Button("選択", action: onPick).buttonStyle(.bordered)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)          // 名前バーの上下幅を薄く（6→4）
         .background(.thinMaterial)
     }
 }

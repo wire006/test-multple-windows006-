@@ -22,7 +22,7 @@ struct WebSplit: View {
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            VSplit {
+            VSplit("web") {
                 BrowserPaneView(pane: top)
             } bottom: {
                 BrowserPaneView(pane: bottom)

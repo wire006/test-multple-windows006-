@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import UniformTypeIdentifiers
+import UIKit
 
 // MARK: - 用途3: Files の md / txt を2つ、上下2分割で表示（文字サイズ調整可）
 //
@@ -12,10 +13,10 @@ struct TextSplit: View {
     @StateObject private var bottomSlot = BookmarkSlot(key: "slot.text.bottom")
 
     var body: some View {
-        VSplit {
-            TextPane(title: "テキスト（上）", slot: topSlot, fontKey: "text.font.top")
+        VSplit("text") {
+            TextPane(title: "テキスト（上）", slot: topSlot, fontKey: "text.font.top", scrollKey: "scroll.text.top")
         } bottom: {
-            TextPane(title: "テキスト（下）", slot: bottomSlot, fontKey: "text.font.bottom")
+            TextPane(title: "テキスト（下）", slot: bottomSlot, fontKey: "text.font.bottom", scrollKey: "scroll.text.bottom")
         }
     }
 }
@@ -23,6 +24,7 @@ struct TextSplit: View {
 struct TextPane: View {
     let title: String
     @ObservedObject var slot: BookmarkSlot
+    let scrollKey: String
     @AppStorage private var fontSize: Double
     @State private var importing = false
     @State private var html = ""
@@ -34,9 +36,10 @@ struct TextPane: View {
         UTType(filenameExtension: "txt") ?? .plainText,
     ]
 
-    init(title: String, slot: BookmarkSlot, fontKey: String) {
+    init(title: String, slot: BookmarkSlot, fontKey: String, scrollKey: String) {
         self.title = title
         self._slot = ObservedObject(wrappedValue: slot)
+        self.scrollKey = scrollKey
         self._fontSize = AppStorage(wrappedValue: 17.0, fontKey)
     }
 
@@ -57,17 +60,20 @@ struct TextPane: View {
             }
             .font(.system(size: 17))
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)          // 名前バーの上下幅を薄く（6→4）
             .background(.thinMaterial)
 
-            TextHTMLView(html: html, fontSize: fontSize)
+            TextHTMLView(html: html, fontSize: fontSize, scrollKey: scrollKey)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: Self.types,
                       allowsMultipleSelection: false) { result in
-            if case .success(let urls) = result, let u = urls.first { slot.set(u) }
+            if case .success(let urls) = result, let u = urls.first {
+                UserDefaults.standard.set(0.0, forKey: scrollKey)   // 別ファイルは先頭から
+                slot.set(u)
+            }
         }
         .onAppear(perform: reload)
         .onChange(of: slot.url) { _ in reload() }
@@ -101,13 +107,15 @@ struct TextPane: View {
 struct TextHTMLView: UIViewRepresentable {
     let html: String
     let fontSize: Double
+    let scrollKey: String
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator { var lastHTML: String?; var lastFont: Double = -1 }
+    func makeCoordinator() -> Coordinator { Coordinator(scrollKey: scrollKey) }
 
     func makeUIView(context: Context) -> WKWebView {
         let wv = WKWebView()
         wv.scrollView.contentInsetAdjustmentBehavior = .never
+        wv.navigationDelegate = context.coordinator
+        context.coordinator.webView = wv
         return wv
     }
 
@@ -121,6 +129,40 @@ struct TextHTMLView: UIViewRepresentable {
             c.lastFont = fontSize
             wv.evaluateJavaScript(
                 "document.documentElement.style.setProperty('--fs','\(Int(fontSize))px')",
+                completionHandler: nil)
+        }
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        let scrollKey: String
+        var lastHTML: String?
+        var lastFont: Double = -1
+        weak var webView: WKWebView?
+        private var token: NSObjectProtocol?
+
+        init(scrollKey: String) {
+            self.scrollKey = scrollKey
+            super.init()
+            // バックグラウンドに移る瞬間にスクロール位置（割合）を保存
+            token = NotificationCenter.default.addObserver(
+                forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.save() }
+        }
+        deinit { if let t = token { NotificationCenter.default.removeObserver(t) } }
+
+        func save() {
+            guard let sv = webView?.scrollView else { return }
+            let denom = max(1, sv.contentSize.height - sv.bounds.height)
+            let f = min(1, max(0, Double(sv.contentOffset.y / denom)))
+            UserDefaults.standard.set(f, forKey: scrollKey)
+        }
+
+        // 読み込み完了後、保存した割合位置まで復元
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            let f = UserDefaults.standard.double(forKey: scrollKey)
+            guard f > 0 else { return }
+            webView.evaluateJavaScript(
+                "window.scrollTo(0,(document.documentElement.scrollHeight-window.innerHeight)*\(f))",
                 completionHandler: nil)
         }
     }
