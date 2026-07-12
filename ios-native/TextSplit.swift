@@ -8,15 +8,44 @@ import UIKit
 // テキストはアプリ側で組版するので、ペイン幅に合わせて自動改行（リフロー）し、
 // どんな文字サイズでも見切れない。文字サイズは各ペインの −/＋ で変更でき、
 // @AppStorage に保存される（スクロール位置を保つため JS でライブ更新）。
+// MARK: - 2ペインのスクロール進捗(%)を同期する
+final class ScrollSync: ObservableObject {
+    @Published var enabled: Bool { didSet { UserDefaults.standard.set(enabled, forKey: "text.sync.enabled") } }
+    private weak var topWV: WKWebView?
+    private weak var bottomWV: WKWebView?
+
+    init() { enabled = UserDefaults.standard.bool(forKey: "text.sync.enabled") }
+
+    func register(_ wv: WKWebView, top: Bool) { if top { topWV = wv } else { bottomWV = wv } }
+
+    /// source がユーザー操作でスクロールしたら、もう片方を同じ割合(%)に合わせる
+    func scrolled(_ source: WKWebView) {
+        guard enabled else { return }
+        let sv = source.scrollView
+        // ユーザーが実際に触っている側だけを基準に（プログラム的スクロールのエコーを防止）
+        guard sv.isDragging || sv.isDecelerating else { return }
+        let other = (source === topWV) ? bottomWV : (source === bottomWV ? topWV : nil)
+        guard let other else { return }
+        let denom = max(1, sv.contentSize.height - sv.bounds.height)
+        let f = min(1, max(0, sv.contentOffset.y / denom))
+        let o = other.scrollView
+        let odenom = max(1, o.contentSize.height - o.bounds.height)
+        o.setContentOffset(CGPoint(x: 0, y: f * odenom), animated: false)
+    }
+}
+
 struct TextSplit: View {
     @StateObject private var topSlot = BookmarkSlot(key: "slot.text.top")
     @StateObject private var bottomSlot = BookmarkSlot(key: "slot.text.bottom")
+    @StateObject private var sync = ScrollSync()
 
     var body: some View {
         VSplit("text") {
-            TextPane(title: "テキスト（上）", slot: topSlot, fontKey: "text.font.top", scrollKey: "scroll.text.top")
+            TextPane(title: "テキスト（上）", slot: topSlot, fontKey: "text.font.top",
+                     scrollKey: "scroll.text.top", sync: sync, isTop: true)
         } bottom: {
-            TextPane(title: "テキスト（下）", slot: bottomSlot, fontKey: "text.font.bottom", scrollKey: "scroll.text.bottom")
+            TextPane(title: "テキスト（下）", slot: bottomSlot, fontKey: "text.font.bottom",
+                     scrollKey: "scroll.text.bottom", sync: sync, isTop: false)
         }
     }
 }
@@ -25,6 +54,8 @@ struct TextPane: View {
     let title: String
     @ObservedObject var slot: BookmarkSlot
     let scrollKey: String
+    @ObservedObject var sync: ScrollSync
+    let isTop: Bool
     @AppStorage private var fontSize: Double
     @State private var importing = false
     @State private var html = ""
@@ -36,10 +67,13 @@ struct TextPane: View {
         UTType(filenameExtension: "txt") ?? .plainText,
     ]
 
-    init(title: String, slot: BookmarkSlot, fontKey: String, scrollKey: String) {
+    init(title: String, slot: BookmarkSlot, fontKey: String, scrollKey: String,
+         sync: ScrollSync, isTop: Bool) {
         self.title = title
         self._slot = ObservedObject(wrappedValue: slot)
         self.scrollKey = scrollKey
+        self._sync = ObservedObject(wrappedValue: sync)
+        self.isTop = isTop
         self._fontSize = AppStorage(wrappedValue: 17.0, fontKey)
     }
 
@@ -52,6 +86,9 @@ struct TextPane: View {
                         .lineLimit(1).truncationMode(.middle)
                 }
                 Spacer()
+                Button { sync.enabled.toggle() } label: {   // スクロール同期のオン/オフ
+                    Image(systemName: sync.enabled ? "link.circle.fill" : "link.circle")
+                }
                 Button { setFont(fontSize - 1) } label: { Image(systemName: "textformat.size.smaller") }
                     .disabled(fontSize <= 10)
                 Button { setFont(fontSize + 1) } label: { Image(systemName: "textformat.size.larger") }
@@ -63,7 +100,7 @@ struct TextPane: View {
             .padding(.vertical, 4)          // 名前バーの上下幅を薄く（6→4）
             .background(.thinMaterial)
 
-            TextHTMLView(html: html, fontSize: fontSize, scrollKey: scrollKey)
+            TextHTMLView(html: html, fontSize: fontSize, scrollKey: scrollKey, sync: sync, isTop: isTop)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -108,14 +145,18 @@ struct TextHTMLView: UIViewRepresentable {
     let html: String
     let fontSize: Double
     let scrollKey: String
+    let sync: ScrollSync
+    let isTop: Bool
 
-    func makeCoordinator() -> Coordinator { Coordinator(scrollKey: scrollKey) }
+    func makeCoordinator() -> Coordinator { Coordinator(scrollKey: scrollKey, sync: sync, isTop: isTop) }
 
     func makeUIView(context: Context) -> WKWebView {
         let wv = WKWebView()
         wv.scrollView.contentInsetAdjustmentBehavior = .never
         wv.navigationDelegate = context.coordinator
         context.coordinator.webView = wv
+        sync.register(wv, top: isTop)
+        context.coordinator.observeScroll(wv)
         return wv
     }
 
@@ -135,20 +176,36 @@ struct TextHTMLView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         let scrollKey: String
+        let sync: ScrollSync
+        let isTop: Bool
         var lastHTML: String?
         var lastFont: Double = -1
         weak var webView: WKWebView?
         private var token: NSObjectProtocol?
+        private var scrollObs: NSKeyValueObservation?
 
-        init(scrollKey: String) {
+        init(scrollKey: String, sync: ScrollSync, isTop: Bool) {
             self.scrollKey = scrollKey
+            self.sync = sync
+            self.isTop = isTop
             super.init()
             // バックグラウンドに移る瞬間にスクロール位置（割合）を保存
             token = NotificationCenter.default.addObserver(
                 forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
             ) { [weak self] _ in self?.save() }
         }
-        deinit { if let t = token { NotificationCenter.default.removeObserver(t) } }
+        deinit {
+            if let t = token { NotificationCenter.default.removeObserver(t) }
+            scrollObs?.invalidate()
+        }
+
+        // スクロールを監視し、同期がオンならもう片方を同じ割合に合わせる
+        func observeScroll(_ wv: WKWebView) {
+            scrollObs = wv.scrollView.observe(\.contentOffset, options: [.new]) { [weak self, weak wv] _, _ in
+                guard let self, let wv else { return }
+                self.sync.scrolled(wv)
+            }
+        }
 
         func save() {
             guard let sv = webView?.scrollView else { return }
