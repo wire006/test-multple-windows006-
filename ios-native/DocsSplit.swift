@@ -16,9 +16,9 @@ struct DocsSplit: View {
 
     var body: some View {
         VSplit("files") {
-            PDFPane(title: "PDF（上）", slot: topSlot, scrollKey: "scroll.pdf.top")
+            PDFPane(title: "PDF（上）", slot: topSlot, scrollKey: "scroll.pdf.top", isTop: true)
         } bottom: {
-            PDFPane(title: "PDF（下）", slot: bottomSlot, scrollKey: "scroll.pdf.bottom")
+            PDFPane(title: "PDF（下）", slot: bottomSlot, scrollKey: "scroll.pdf.bottom", isTop: false)
         }
     }
 }
@@ -60,15 +60,17 @@ struct PDFPane: View {
     let title: String
     @ObservedObject var slot: BookmarkSlot
     let scrollKey: String
+    let isTop: Bool
     @State private var importing = false
 
     var body: some View {
         VStack(spacing: 0) {
-            PaneBar(title: title, filename: slot.url?.lastPathComponent) { importing = true }
+            if isTop { bar }        // 上ペインはバーを上に
             PDFKitView(url: slot.url, scrollKey: scrollKey)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if !isTop { bar }       // 下ペインはバーを最下部に
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: [.pdf],
                       allowsMultipleSelection: false) { result in
@@ -78,6 +80,10 @@ struct PDFPane: View {
                 slot.set(u)
             }
         }
+    }
+
+    private var bar: some View {
+        PaneBar(title: title, filename: slot.url?.lastPathComponent) { importing = true }
     }
 }
 

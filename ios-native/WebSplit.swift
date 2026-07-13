@@ -23,9 +23,9 @@ struct WebSplit: View {
         VStack(spacing: 0) {
             controlBar
             VSplit("web") {
-                BrowserPaneView(pane: top)
+                BrowserPaneView(pane: top, isTop: true)
             } bottom: {
-                BrowserPaneView(pane: bottom)
+                BrowserPaneView(pane: bottom, isTop: false)
             }
         }
         .sheet(isPresented: $showManage) { manageSheet }
@@ -111,34 +111,12 @@ struct WebSplit: View {
 // MARK: - 1ペインの UI（ツールバー + WebView + プログレス）
 struct BrowserPaneView: View {
     @ObservedObject var pane: BrowserPane
+    let isTop: Bool
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Button(action: pane.back) { Image(systemName: "chevron.backward") }
-                    .disabled(!pane.canGoBack)
-                Button(action: pane.forward) { Image(systemName: "chevron.forward") }
-                    .disabled(!pane.canGoForward)
-
-                TextField("検索 または URL", text: $pane.address)
-                    .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
-                    .keyboardType(.webSearch)
-                    .submitLabel(.go)
-                    .focused($focused)
-                    .onSubmit { pane.go(); focused = false }
-
-                Button(action: pane.reloadOrStop) {
-                    Image(systemName: pane.isLoading ? "xmark" : "arrow.clockwise")
-                }
-            }
-            .font(.system(size: 16))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(.thinMaterial)
-
+            if isTop { toolbar }        // 上ペインはバーを上に
             ZStack(alignment: .top) {
                 WebView(pane: pane)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -148,8 +126,35 @@ struct BrowserPaneView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if !isTop { toolbar }       // 下ペインはバーを最下部に
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 6) {
+            Button(action: pane.back) { Image(systemName: "chevron.backward") }
+                .disabled(!pane.canGoBack)
+            Button(action: pane.forward) { Image(systemName: "chevron.forward") }
+                .disabled(!pane.canGoForward)
+
+            TextField("検索 または URL", text: $pane.address)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .keyboardType(.webSearch)
+                .submitLabel(.go)
+                .focused($focused)
+                .onSubmit { pane.go(); focused = false }
+
+            Button(action: pane.reloadOrStop) {
+                Image(systemName: pane.isLoading ? "xmark" : "arrow.clockwise")
+            }
+        }
+        .font(.system(size: 16))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(.thinMaterial)
     }
 }
 
