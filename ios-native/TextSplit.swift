@@ -79,31 +79,12 @@ struct TextPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text(title).font(.headline)
-                if let name = slot.url?.lastPathComponent {
-                    Text(name).font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-                Spacer()
-                Button { sync.enabled.toggle() } label: {   // スクロール同期のオン/オフ
-                    Image(systemName: sync.enabled ? "link.circle.fill" : "link.circle")
-                }
-                Button { setFont(fontSize - 1) } label: { Image(systemName: "textformat.size.smaller") }
-                    .disabled(fontSize <= 10)
-                Button { setFont(fontSize + 1) } label: { Image(systemName: "textformat.size.larger") }
-                    .disabled(fontSize >= 40)
-                Button("選択") { importing = true }.buttonStyle(.bordered)
-            }
-            .font(.system(size: 17))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)          // 名前バーの上下幅を薄く（6→4）
-            .background(.thinMaterial)
-
+            if isTop { toolbar }        // 上ペインはバーを上に
             TextHTMLView(html: html, fontSize: fontSize, scrollKey: scrollKey, sync: sync, isTop: isTop)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if !isTop { toolbar }       // 下ペインはバーを最下部に（本文どうしを中央で隣接）
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: Self.types,
                       allowsMultipleSelection: false) { result in
@@ -114,6 +95,29 @@ struct TextPane: View {
         }
         .onAppear(perform: reload)
         .onChange(of: slot.url) { _ in reload() }
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 8) {
+            Text(title).font(.headline)
+            if let name = slot.url?.lastPathComponent {
+                Text(name).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer()
+            Button { sync.enabled.toggle() } label: {   // スクロール同期のオン/オフ
+                Image(systemName: sync.enabled ? "link.circle.fill" : "link.circle")
+            }
+            Button { setFont(fontSize - 1) } label: { Image(systemName: "textformat.size.smaller") }
+                .disabled(fontSize <= 10)
+            Button { setFont(fontSize + 1) } label: { Image(systemName: "textformat.size.larger") }
+                .disabled(fontSize >= 40)
+            Button("選択") { importing = true }.buttonStyle(.bordered)
+        }
+        .font(.system(size: 17))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)          // 名前バーの上下幅を薄く
+        .background(.thinMaterial)
     }
 
     private func setFont(_ v: Double) {
