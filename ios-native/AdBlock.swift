@@ -3,11 +3,14 @@ import WebKit
 
 // MARK: - 分割ブラウザ用の広告ブロック（WKContentRuleList）
 //
-// 起動時に複数の定番フィルタ（AdGuard 日本語 / AdGuard ベース / EasyList）を取得し、
-// 2種類の規則にコンパイルして各 WebView に適用する：
+// 起動時に定番フィルタ（AdGuard 日本語 / AdGuard ベース）を取得し、2種類の規則に
+// コンパイルして各 WebView に適用する：
 //   1. ネットワークブロック … 広告ドメインへの通信を遮断（||domain^ 規則）
 //   2. 要素非表示(cosmetic) … 残った広告枠を CSS で非表示（##selector 規則）
 // 日本のサイト（まとめ／掲示板など）の広告は AdGuard 日本語が要素非表示で消してくれる。
+//
+// さらに、確実に効かせたい規則（animanch など＋一般的な広告枠）はアプリに組み込み
+// （builtinRules）、取得に失敗しても最低限の広告は消えるようにしている。
 //
 // コンパイル済みは WKContentRuleListStore が識別子ごとに端末キャッシュするので、
 // 次回起動時は即適用（更新は1日1回だけ取得）。
@@ -22,17 +25,39 @@ final class AdBlock {
 
     // 取得元フィルタ（アドブロック構文テキスト）。日本のサイト向けに日本語フィルタも併用。
     // 先頭ほど優先（上限に達したら後ろが切り捨てられるので、日本語を最優先）。
+    // AdGuard 公式の配布リポジトリ（GitHub）から取得する（安定して到達できる）。
     private let sources: [URL] = [
-        URL(string: "https://filters.adtidy.org/extension/safari/filters/7.txt")!, // AdGuard 日本語
-        URL(string: "https://filters.adtidy.org/extension/safari/filters/2.txt")!, // AdGuard ベース
-        URL(string: "https://easylist.to/easylist/easylist.txt")!,                 // EasyList（国際）
+        URL(string: "https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_7_Japanese/filter.txt")!, // AdGuard 日本語
+        URL(string: "https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_2_Base/filter.txt")!,     // AdGuard ベース
     ]
+
+    // アプリ組み込みの最小規則（取得失敗時でも効く）。animanch など実測で確認した広告枠＋
+    // 一般的な広告コンテナ。convert() に通すのでフィルタ本体と同じ書式で書く。
+    private static let builtinRules = """
+    ! --- 掲示板/まとめの広告枠（実測で確認）---
+    animanch.com##.abox
+    animanch.com##.AMvertical
+    animanch.com##.amazlet-box
+    animanch.com##.yyi-rinker-contents
+    animanch.com##div[style="width: 780px; height: 485px;"]
+    ! --- 一般的な表示広告コンテナ（全サイト）---
+    ##.adsbygoogle
+    ##ins.adsbygoogle
+    ##[id^="google_ads_iframe"]
+    ! --- 主要広告ドメインの通信遮断（フォールバック）---
+    ||googlesyndication.com^
+    ||doubleclick.net^
+    ||googleadservices.com^
+    ||amazon-adsystem.com^
+    ||2mdn.net^
+    ||adnxs.com^
+    """
     private let netID = "ads-net-v2"                 // ネットワークブロック規則
     private func cosID(_ i: Int) -> String { "ads-cos-v2-\(i)" }   // 要素非表示規則（チャンク）
     private let oldID = "ads-rules-v1"               // 旧バージョン（掃除用）
     private static let maxCosChunks = 4              // 要素非表示チャンク数
     private let lastFetchKey = "adblock.lastFetch.v2"
-    private let refreshInterval: TimeInterval = 24 * 60 * 60   // 1日
+    private let refreshInterval: TimeInterval = 7 * 24 * 60 * 60   // 7日（大きめのリスト取得を控えめに）
 
     private var lists: [WKContentRuleList] = []
     private var registered: [WeakWeb] = []
@@ -119,9 +144,11 @@ final class AdBlock {
             }.resume()
         }
         group.notify(queue: .global(qos: .utility)) { [weak self] in
-            guard let self, !chunks.isEmpty else { return }
-            // 取得順に関わらず sources の並び（＝優先順）で連結
-            let text = chunks.sorted { $0.0 < $1.0 }.map { $0.1 }.joined(separator: "\n")
+            guard let self else { return }
+            let gotRemote = !chunks.isEmpty
+            // 組み込み規則を最優先に、取得できたフィルタを sources の並び（＝優先順）で連結
+            let remote = chunks.sorted { $0.0 < $1.0 }.map { $0.1 }.joined(separator: "\n")
+            let text = Self.builtinRules + "\n" + remote
             let (netJSON, cosJSONs) = Self.convert(text)
             var jobs: [(String, String)] = [(self.netID, netJSON)]
             for (i, json) in cosJSONs.enumerated() { jobs.append((self.cosID(i), json)) }
@@ -129,7 +156,10 @@ final class AdBlock {
                 guard let store = WKContentRuleListStore.default() else { return }
                 self.compileMany(store, jobs) { compiled in
                     guard !compiled.isEmpty else { return }
-                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: self.lastFetchKey)
+                    // 取得成功時のみ「最新」とみなす（組み込みだけの時は次回また取得を試みる）
+                    if gotRemote {
+                        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: self.lastFetchKey)
+                    }
                     self.applyAll(compiled)
                 }
             }
@@ -247,10 +277,10 @@ final class AdBlock {
         d.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
     }
 
-    // css-display-none で使える文字（素直なCSSセレクタ＋属性値中のURL文字）。拡張構文は弾く。
+    // css-display-none で使える文字（素直なCSSセレクタ＋属性値中のURL/スタイル文字）。拡張構文は弾く。
     private static let selectorAllowed: CharacterSet = {
         var set = CharacterSet.alphanumerics
-        set.insert(charactersIn: " .#*,>+~[]=\"'-_:()^$|/%&?")
+        set.insert(charactersIn: " .#*,>+~[]=\"'-_:()^$|/%&?;")
         return set
     }()
 
