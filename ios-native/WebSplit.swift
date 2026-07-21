@@ -139,33 +139,48 @@ struct BrowserPaneView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 6) {
-            Button(action: pane.back) { Image(systemName: "chevron.backward") }
-                .disabled(!pane.canGoBack)
-            Button(action: pane.forward) { Image(systemName: "chevron.forward") }
-                .disabled(!pane.canGoForward)
+        GeometryReader { geo in
+            HStack(spacing: 4) {
+                iconButton("chevron.backward", action: pane.back).disabled(!pane.canGoBack)
+                iconButton("chevron.forward", action: pane.forward).disabled(!pane.canGoForward)
 
-            TextField("検索 または URL", text: $pane.address)
-                .textFieldStyle(.roundedBorder)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
-                .keyboardType(.webSearch)
-                .submitLabel(.go)
-                .focused($focused)
-                .onSubmit { pane.go(); focused = false }
+                TextField("検索 または URL", text: $pane.address)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .keyboardType(.webSearch)
+                    .submitLabel(.go)
+                    .focused($focused)
+                    .onSubmit { pane.go(); focused = false }
+                    .frame(width: urlFieldWidth(geo.size.width))   // 従来の約3/4に
 
-            Button(action: pane.reloadOrStop) {
-                Image(systemName: pane.isLoading ? "xmark" : "arrow.clockwise")
+                iconButton(pane.isLoading ? "xmark" : "arrow.clockwise", action: pane.reloadOrStop)
+                Spacer(minLength: 0)
+                iconButton("textformat.size.smaller", action: { zoom = max(0.5, zoom - 0.1) })
+                    .disabled(zoom <= 0.5)
+                iconButton("textformat.size.larger", action: { zoom = min(3.0, zoom + 0.1) })
+                    .disabled(zoom >= 3.0)
             }
-            Button { zoom = max(0.5, zoom - 0.1) } label: { Image(systemName: "textformat.size.smaller") }
-                .disabled(zoom <= 0.5)
-            Button { zoom = min(3.0, zoom + 0.1) } label: { Image(systemName: "textformat.size.larger") }
-                .disabled(zoom >= 3.0)
+            .padding(.horizontal, 8)
+            .frame(height: geo.size.height)
         }
-        .font(.system(size: 16))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .frame(height: 46)
         .background(.thinMaterial)
+    }
+
+    /// URL欄の幅：従来より狭め、余ったぶんをボタン側の余白に回して押しやすくする
+    private func urlFieldWidth(_ barWidth: CGFloat) -> CGFloat {
+        return max(120, (barWidth - 180) * 0.8)
+    }
+
+    // 押しやすいよう大きめのタップ領域を持つアイコンボタン
+    private func iconButton(_ systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 17))
+                .frame(minWidth: 34, minHeight: 36)
+                .contentShape(Rectangle())
+        }
     }
 }
 
