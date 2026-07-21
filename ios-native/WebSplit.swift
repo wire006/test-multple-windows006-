@@ -184,6 +184,7 @@ struct WebView: UIViewRepresentable {
         context.coordinator.attach(webView)
         context.coordinator.textScale = zoom      // 文字のみ拡大（横幅維持）
         pane.webView = webView
+        AdBlock.shared.register(webView)          // 広告ブロック規則を適用
 
         if let url = BrowserPane.normalize(pane.address) {
             webView.load(URLRequest(url: url))

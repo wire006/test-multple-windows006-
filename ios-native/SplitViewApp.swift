@@ -53,6 +53,7 @@ struct RootView: View {
                     .allowsHitTesting(mode == .web)
             }
         }
+        .onAppear { AdBlock.shared.start() }   // 広告ブロック（EasyList）を起動時に読み込み
     }
 }
 
