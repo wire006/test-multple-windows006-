@@ -66,7 +66,7 @@ struct VSplit<Top: View, Bottom: View>: View {
     private let bottom: Bottom
     private let space: String
     @AppStorage private var topFraction: Double   // 分割比率を保存（次回起動時に復元）
-    private let dividerH: CGFloat = 16
+    private let dividerH: CGFloat = 28             // つかみやすいよう仕切りを大きめに
 
     init(_ storageKey: String, @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom) {
         self.top = top()
@@ -86,13 +86,13 @@ struct VSplit<Top: View, Bottom: View>: View {
                     .clipped()
 
                 ZStack {
-                    Color(.systemGray5)
-                    Capsule().fill(Color(.systemGray)).frame(width: 44, height: 5)
+                    Color(.systemGray4)
+                    Capsule().fill(Color(.systemGray)).frame(width: 60, height: 6)
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: dividerH)
                 .contentShape(Rectangle())
-                .gesture(
+                .highPriorityGesture(
                     DragGesture(minimumDistance: 0, coordinateSpace: .named(space))
                         .onChanged { v in
                             topFraction = min(0.85, max(0.15, Double(v.location.y) / Double(usable)))
