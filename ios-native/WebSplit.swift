@@ -23,9 +23,9 @@ struct WebSplit: View {
         VStack(spacing: 0) {
             controlBar
             VSplit("web") {
-                BrowserPaneView(pane: top, isTop: true)
+                BrowserPaneView(pane: top, isTop: true, zoomKey: "web.zoom.top")
             } bottom: {
-                BrowserPaneView(pane: bottom, isTop: false)
+                BrowserPaneView(pane: bottom, isTop: false, zoomKey: "web.zoom.bottom")
             }
         }
         .sheet(isPresented: $showManage) { manageSheet }
@@ -112,13 +112,20 @@ struct WebSplit: View {
 struct BrowserPaneView: View {
     @ObservedObject var pane: BrowserPane
     let isTop: Bool
+    @AppStorage private var zoom: Double   // ページ拡大率（保存）
     @FocusState private var focused: Bool
+
+    init(pane: BrowserPane, isTop: Bool, zoomKey: String) {
+        self._pane = ObservedObject(wrappedValue: pane)
+        self.isTop = isTop
+        self._zoom = AppStorage(wrappedValue: 1.0, zoomKey)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             if isTop { toolbar }        // 上ペインはバーを上に
             ZStack(alignment: .top) {
-                WebView(pane: pane)
+                WebView(pane: pane, zoom: zoom)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if pane.isLoading {
                     ProgressView(value: pane.progress)
@@ -150,6 +157,10 @@ struct BrowserPaneView: View {
             Button(action: pane.reloadOrStop) {
                 Image(systemName: pane.isLoading ? "xmark" : "arrow.clockwise")
             }
+            Button { zoom = max(0.5, zoom - 0.1) } label: { Image(systemName: "textformat.size.smaller") }
+                .disabled(zoom <= 0.5)
+            Button { zoom = min(3.0, zoom + 0.1) } label: { Image(systemName: "textformat.size.larger") }
+                .disabled(zoom >= 3.0)
         }
         .font(.system(size: 16))
         .padding(.horizontal, 8)
@@ -212,6 +223,7 @@ final class BrowserPane: ObservableObject {
 // MARK: - WKWebView ラッパ（KVO で状態を同期）
 struct WebView: UIViewRepresentable {
     @ObservedObject var pane: BrowserPane
+    let zoom: Double
 
     // Google の埋め込みブラウザ判定を避けるための Safari UA（iOS更新時に数字を更新）
     static let safariUA =
@@ -227,6 +239,7 @@ struct WebView: UIViewRepresentable {
         config.websiteDataStore = .default()   // ログインCookieを永続化
 
         let webView = WKWebView(frame: .zero, configuration: config)
+        webView.pageZoom = CGFloat(zoom)              // 文字（ページ）の拡大率
         webView.customUserAgent = Self.safariUA
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -241,7 +254,9 @@ struct WebView: UIViewRepresentable {
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) { }
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        if webView.pageZoom != CGFloat(zoom) { webView.pageZoom = CGFloat(zoom) }
+    }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let pane: BrowserPane
