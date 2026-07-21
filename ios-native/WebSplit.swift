@@ -3,8 +3,8 @@ import WebKit
 
 // MARK: - 用途1: 汎用の「分割ブラウザ」（任意の2サイトを分割表示）
 //
-// 各ペインは WKWebView（Safari と同じ WebKit）。アドレスバー・戻る/進む/更新・全画面、
-// 上下⇔左右切替、入れ替え、ブックマークを備えた実用的な2ペインブラウザです。
+// 各ペインは WKWebView（Safari と同じ WebKit）。アドレスバー・戻る/進む/更新・
+// 文字サイズ・入れ替え（上ペインのバーに統合）を備えた2ペインブラウザです。
 // 既定は Claude（上）と Google ドキュメント（下）。
 //
 // 【ログイン注意】Google は埋め込みブラウザからのログインを既定でブロックするため、
@@ -16,95 +16,22 @@ struct WebSplit: View {
                                                initial: "https://claude.ai")
     @StateObject private var bottom = BrowserPane(storageKey: "web.url.bottom",
                                                   initial: "https://docs.google.com/document/u/0/")
-    @StateObject private var bookmarks = BookmarkStore()
-    @State private var showManage = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            controlBar
-            VSplit("web") {
-                BrowserPaneView(pane: top, isTop: true, zoomKey: "web.zoom.top")
-            } bottom: {
-                BrowserPaneView(pane: bottom, isTop: false, zoomKey: "web.zoom.bottom")
-            }
-        }
-        .sheet(isPresented: $showManage) { manageSheet }
-    }
-
-    // MARK: 上部の操作バー
-    private var controlBar: some View {
-        HStack(spacing: 18) {
-            Button { swapPanes() } label: {
-                Image(systemName: "arrow.up.arrow.down")
-            }
-
-            Spacer()
-
-            Menu {
-                Section("開く") {
-                    ForEach(bookmarks.pairs) { pair in
-                        Button(pair.name) { apply(pair) }
-                    }
-                }
-                Section {
-                    Button { saveCurrent() } label: { Label("現在のペアを保存", systemImage: "plus") }
-                    Button { showManage = true } label: { Label("管理…", systemImage: "slider.horizontal.3") }
-                }
-            } label: {
-                Image(systemName: "bookmark")
-            }
-        }
-        .font(.system(size: 18))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.thinMaterial)
-    }
-
-    // MARK: ブックマーク管理シート
-    private var manageSheet: some View {
-        NavigationView {
-            List {
-                if bookmarks.pairs.isEmpty {
-                    Text("保存されたブックマークはありません").foregroundStyle(.secondary)
-                }
-                ForEach($bookmarks.pairs) { $pair in
-                    VStack(alignment: .leading, spacing: 2) {
-                        TextField("名前", text: $pair.name)
-                        Text("↑ \(pair.top)").font(.caption2).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.middle)
-                        Text("↓ \(pair.bottom)").font(.caption2).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.middle)
-                    }
-                }
-                .onDelete { bookmarks.remove(at: $0) }
-            }
-            .navigationTitle("ブックマーク")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完了") { showManage = false }
-                }
-            }
+        // 独立した操作バーは持たず、入れ替えボタンは上ペインのアドレスバーに統合（1段）
+        VSplit("web") {
+            BrowserPaneView(pane: top, isTop: true, zoomKey: "web.zoom.top", onSwap: swapPanes)
+        } bottom: {
+            BrowserPaneView(pane: bottom, isTop: false, zoomKey: "web.zoom.bottom")
         }
     }
 
-    // MARK: 操作
+    // 上下ペインの URL を入れ替える
     private func swapPanes() {
         let a = top.current
         let b = bottom.current
         top.load(b)
         bottom.load(a)
-    }
-    private func apply(_ pair: BookmarkPair) {
-        top.load(pair.top)
-        bottom.load(pair.bottom)
-    }
-    private func saveCurrent() {
-        let name = "\(hostName(top.current)) / \(hostName(bottom.current))"
-        bookmarks.add(BookmarkPair(name: name, top: top.current, bottom: bottom.current))
-    }
-    private func hostName(_ s: String) -> String {
-        (URL(string: s)?.host ?? s).replacingOccurrences(of: "www.", with: "")
     }
 }
 
@@ -112,12 +39,14 @@ struct WebSplit: View {
 struct BrowserPaneView: View {
     @ObservedObject var pane: BrowserPane
     let isTop: Bool
+    let onSwap: (() -> Void)?               // 指定時はツールバーに入れ替えボタンを表示
     @AppStorage private var zoom: Double   // ページ拡大率（保存）
     @FocusState private var focused: Bool
 
-    init(pane: BrowserPane, isTop: Bool, zoomKey: String) {
+    init(pane: BrowserPane, isTop: Bool, zoomKey: String, onSwap: (() -> Void)? = nil) {
         self._pane = ObservedObject(wrappedValue: pane)
         self.isTop = isTop
+        self.onSwap = onSwap
         self._zoom = AppStorage(wrappedValue: 1.0, zoomKey)
     }
 
@@ -141,6 +70,7 @@ struct BrowserPaneView: View {
     private var toolbar: some View {
         // すべて1行の HStack。URL欄は上限つき＆足りなければ縮むので必ず1行に収まる。
         HStack(spacing: 6) {
+            if let onSwap { iconButton("arrow.up.arrow.down", action: onSwap) }
             iconButton("chevron.backward", action: pane.back).disabled(!pane.canGoBack)
             iconButton("chevron.forward", action: pane.forward).disabled(!pane.canGoForward)
 
@@ -335,42 +265,4 @@ struct WebView: UIViewRepresentable {
     }
 }
 
-// MARK: - ブックマーク（2サイトの組）
-struct BookmarkPair: Identifiable, Codable, Equatable {
-    var id = UUID()
-    var name: String
-    var top: String
-    var bottom: String
-}
-
-final class BookmarkStore: ObservableObject {
-    @Published var pairs: [BookmarkPair] { didSet { save() } }
-    private let key = "web.bookmarks.v1"
-
-    init() {
-        if let data = UserDefaults.standard.data(forKey: key),
-           let decoded = try? JSONDecoder().decode([BookmarkPair].self, from: data) {
-            pairs = decoded
-        } else {
-            pairs = BookmarkStore.defaults
-        }
-    }
-
-    func add(_ p: BookmarkPair) { pairs.append(p) }
-    func remove(at offsets: IndexSet) { pairs.remove(atOffsets: offsets) }
-
-    private func save() {
-        if let data = try? JSONEncoder().encode(pairs) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
-    }
-
-    static let defaults = [
-        BookmarkPair(name: "Claude + Google ドキュメント",
-                     top: "https://claude.ai", bottom: "https://docs.google.com/document/u/0/"),
-        BookmarkPair(name: "Claude + Gmail",
-                     top: "https://claude.ai", bottom: "https://mail.google.com"),
-        BookmarkPair(name: "YouTube + Wikipedia",
-                     top: "https://m.youtube.com", bottom: "https://ja.m.wikipedia.org"),
-    ]
-}
+// （ブックマーク機能は削除済み）
