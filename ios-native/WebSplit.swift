@@ -139,38 +139,30 @@ struct BrowserPaneView: View {
     }
 
     private var toolbar: some View {
-        GeometryReader { geo in
-            HStack(spacing: 4) {
-                iconButton("chevron.backward", action: pane.back).disabled(!pane.canGoBack)
-                iconButton("chevron.forward", action: pane.forward).disabled(!pane.canGoForward)
+        // すべて1行の HStack。URL欄は上限つき＆足りなければ縮むので必ず1行に収まる。
+        HStack(spacing: 6) {
+            iconButton("chevron.backward", action: pane.back).disabled(!pane.canGoBack)
+            iconButton("chevron.forward", action: pane.forward).disabled(!pane.canGoForward)
 
-                TextField("検索 または URL", text: $pane.address)
-                    .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
-                    .keyboardType(.webSearch)
-                    .submitLabel(.go)
-                    .focused($focused)
-                    .onSubmit { pane.go(); focused = false }
-                    .frame(width: urlFieldWidth(geo.size.width))   // 従来の約3/4に
+            TextField("検索 または URL", text: $pane.address)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .keyboardType(.webSearch)
+                .submitLabel(.go)
+                .focused($focused)
+                .onSubmit { pane.go(); focused = false }
+                .frame(maxWidth: 220)          // 狭め。残りが足りなければさらに縮む
 
-                iconButton(pane.isLoading ? "xmark" : "arrow.clockwise", action: pane.reloadOrStop)
-                Spacer(minLength: 0)
-                iconButton("textformat.size.smaller", action: { zoom = max(0.5, zoom - 0.1) })
-                    .disabled(zoom <= 0.5)
-                iconButton("textformat.size.larger", action: { zoom = min(3.0, zoom + 0.1) })
-                    .disabled(zoom >= 3.0)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: geo.size.height)
+            iconButton(pane.isLoading ? "xmark" : "arrow.clockwise", action: pane.reloadOrStop)
+            iconButton("textformat.size.smaller", action: { zoom = max(0.5, zoom - 0.1) })
+                .disabled(zoom <= 0.5)
+            iconButton("textformat.size.larger", action: { zoom = min(3.0, zoom + 0.1) })
+                .disabled(zoom >= 3.0)
         }
-        .frame(height: 46)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
         .background(.thinMaterial)
-    }
-
-    /// URL欄の幅：従来より狭め、余ったぶんをボタン側の余白に回して押しやすくする
-    private func urlFieldWidth(_ barWidth: CGFloat) -> CGFloat {
-        return max(120, (barWidth - 180) * 0.8)
     }
 
     // 押しやすいよう大きめのタップ領域を持つアイコンボタン
