@@ -239,13 +239,13 @@ struct WebView: UIViewRepresentable {
         config.websiteDataStore = .default()   // ログインCookieを永続化
 
         let webView = WKWebView(frame: .zero, configuration: config)
-        webView.pageZoom = CGFloat(zoom)              // 文字（ページ）の拡大率
         webView.customUserAgent = Self.safariUA
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.attach(webView)
+        context.coordinator.textScale = zoom      // 文字のみ拡大（横幅維持）
         pane.webView = webView
 
         if let url = BrowserPane.normalize(pane.address) {
@@ -255,12 +255,19 @@ struct WebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        if webView.pageZoom != CGFloat(zoom) { webView.pageZoom = CGFloat(zoom) }
+        let c = context.coordinator
+        c.textScale = zoom
+        if c.appliedScale != zoom {
+            c.appliedScale = zoom
+            c.applyTextScale(webView)
+        }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let pane: BrowserPane
         private var obs: [NSKeyValueObservation] = []
+        var textScale: Double = 1.0
+        var appliedScale: Double = -1
         init(pane: BrowserPane) { self.pane = pane }
 
         func attach(_ webView: WKWebView) {
@@ -288,6 +295,24 @@ struct WebView: UIViewRepresentable {
                     pane?.canGoForward = wv.canGoForward
                 },
             ]
+        }
+
+        // 文字だけを倍率変更（横幅は維持＝折り返しで縦に伸びる）。
+        // 各要素の元フォントサイズを覚えて倍率をかけ、後から増える要素にも
+        // MutationObserver で追従。1.0 のときは元に戻す。
+        func applyTextScale(_ webView: WKWebView) {
+            let js: String
+            if abs(textScale - 1.0) < 0.001 {
+                js = "(function(){if(window.__tsObs){window.__tsObs.disconnect();window.__tsObs=null;}var e=document.querySelectorAll('[data-ofs]');for(var i=0;i<e.length;i++){e[i].style.fontSize='';e[i].removeAttribute('data-ofs');}})();"
+            } else {
+                js = "(function(s){function a(){var e=document.querySelectorAll('*');for(var i=0;i<e.length;i++){var el=e[i];var o=el.getAttribute('data-ofs');if(o===null){o=getComputedStyle(el).fontSize;el.setAttribute('data-ofs',o);}var p=parseFloat(o);if(!isNaN(p)){el.style.fontSize=(p*window.__ts)+'px';}}}window.__ts=s;a();if(!window.__tsObs){var t;window.__tsObs=new MutationObserver(function(){clearTimeout(t);t=setTimeout(a,200);});window.__tsObs.observe(document.body||document.documentElement,{childList:true,subtree:true});}})(\(textScale));"
+            }
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            appliedScale = textScale
+            applyTextScale(webView)
         }
 
         // target="_blank" 等の新規ウィンドウ要求を、同じ WebView で開く
