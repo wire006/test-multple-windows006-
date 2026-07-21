@@ -66,7 +66,7 @@ struct VSplit<Top: View, Bottom: View>: View {
     private let bottom: Bottom
     private let space: String
     @AppStorage private var topFraction: Double   // 分割比率を保存（次回起動時に復元）
-    private let dividerH: CGFloat = 28             // つかみやすいよう仕切りを大きめに
+    private let dividerH: CGFloat = 16
 
     init(_ storageKey: String, @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom) {
         self.top = top()
@@ -86,8 +86,8 @@ struct VSplit<Top: View, Bottom: View>: View {
                     .clipped()
 
                 ZStack {
-                    Color(.systemGray4)
-                    Capsule().fill(Color(.systemGray)).frame(width: 60, height: 6)
+                    Color(.systemGray5)
+                    Capsule().fill(Color(.systemGray)).frame(width: 44, height: 5)
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: dividerH)
