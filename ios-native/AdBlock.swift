@@ -243,17 +243,36 @@ final class AdBlock {
         return String(data: data, encoding: .utf8) ?? "[]"
     }
 
-    /// ||...^ 行からドメインを取り出す（$オプションやパスは除去）。
+    /// ||...^ 行から「ドメイン全体をブロックしてよい規則」だけドメインを取り出す。
+    ///
+    /// 重要: パス付き(||google.com/pagead) や 値付き修飾子(||youtube.com^$domain=…, $replace=…)
+    /// をドメインだけに丸めると、正規サイト全体（google 検索・YouTube 直接閲覧など）まで
+    /// 塞いでしまう。そうした規則は取り込まない（url-filter はドメインの部分一致のため）。
     static func networkDomain(_ line: String) -> String? {
-        var s = String(line.dropFirst(2))
-        if let i = s.firstIndex(of: "$") { s = String(s[..<i]) }   // $以降のオプション除去
-        for sep in "^/*:?" {                                       // ドメイン区切りで切る
-            if let i = s.firstIndex(of: sep) { s = String(s[..<i]) }
+        let body = line.dropFirst(2)
+        // パターン部と $オプション部に分割
+        let pattern: Substring
+        let options: Substring
+        if let d = body.firstIndex(of: "$") {
+            pattern = body[..<d]
+            options = body[body.index(after: d)...]
+        } else {
+            pattern = body
+            options = ""
         }
-        guard s.count >= 3, s.contains("."),
-              s.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") })
+        // パス/ワイルドカードを含む＝ドメイン限定ではないのでスキップ
+        if pattern.contains(where: { $0 == "/" || $0 == "*" || $0 == "?" }) { return nil }
+        // domain= / replace= / redirect= 等、値付き修飾子はスコープ/意味を変えるのでスキップ
+        if options.contains(where: { $0 == "=" }) { return nil }
+        // ^ または : までをドメインとみなす
+        var s = pattern
+        if let i = s.firstIndex(of: "^") { s = s[..<i] }
+        if let i = s.firstIndex(of: ":") { s = s[..<i] }
+        let domain = String(s)
+        guard domain.count >= 3, domain.contains("."),
+              domain.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") })
         else { return nil }
-        return s
+        return domain
     }
 
     /// ドメイン指定部を (適用ドメイン, 除外ドメイン) に分解。不正を含めば nil で規則ごと破棄。
