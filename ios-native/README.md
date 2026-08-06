@@ -10,14 +10,19 @@
 
 すべて共通の上下分割 `VSplit`（上ペインを一番上に固定・仕切りドラッグで高さ可変）を使用。
 
+> 📖 **コードの仕組みを初心者向けに一から解説した文書**があります → [`CODE_GUIDE.md`](CODE_GUIDE.md)
+> （Swift / SwiftUI とは何かから、各ファイルの読み解き方まで。勉強用にどうぞ）
+
 ## ファイル構成
 
 | ファイル | 役割 |
 |----------|------|
 | `SplitViewApp.swift` | アプリ本体（`@main`）・モード切替・共通2分割コンテナ `VSplit` |
-| `TextSplit.swift` | テキスト×2（md/txt を HTML リフロー表示・文字サイズ調整・簡易Markdown） |
+| `TextSplit.swift` | テキスト×2（md/txt を HTML リフロー表示・文字サイズ調整・簡易Markdown・スクロール同期） |
 | `DocsSplit.swift` | PDF × 2（本文幅にクロップして幅フィット・縦連続スクロール） |
-| `WebSplit.swift` | 分割ブラウザ（アドレスバー・戻る/進む・入れ替え・ブックマーク） |
+| `WebSplit.swift` | 分割ブラウザ（アドレスバー・戻る/進む・入れ替え・文字サイズ） |
+| `AdBlock.swift` | 分割ブラウザの広告ブロック（WKContentRuleList・AdGuard日本語/ベース＋組み込み規則） |
+| `CODE_GUIDE.md` | 初心者向けコード解説（このアプリの仕組みを一から説明） |
 | `project.yml` | XcodeGen 用。`.xcodeproj` を生成するための定義（ターミナルビルド用） |
 | `build.sh` / `rebuild.command` | シミュレータへビルド＆起動 / 実機へ再ビルド（自動 pull・署名検出） |
 
