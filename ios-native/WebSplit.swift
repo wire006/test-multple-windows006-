@@ -3,8 +3,8 @@ import WebKit
 
 // MARK: - 用途1: 汎用の「分割ブラウザ」（任意の2サイトを分割表示）
 //
-// 各ペインは WKWebView（Safari と同じ WebKit）。アドレスバー・戻る/進む/更新・全画面、
-// 上下⇔左右切替、入れ替え、ブックマークを備えた実用的な2ペインブラウザです。
+// 各ペインは WKWebView（Safari と同じ WebKit）。アドレスバー・戻る/進む/更新・
+// 文字サイズ・入れ替え（上ペインのバーに統合）を備えた2ペインブラウザです。
 // 既定は Claude（上）と Google ドキュメント（下）。
 //
 // 【ログイン注意】Google は埋め込みブラウザからのログインを既定でブロックするため、
@@ -16,164 +16,92 @@ struct WebSplit: View {
                                                initial: "https://claude.ai")
     @StateObject private var bottom = BrowserPane(storageKey: "web.url.bottom",
                                                   initial: "https://docs.google.com/document/u/0/")
-    @StateObject private var bookmarks = BookmarkStore()
-
-    @AppStorage("web.axis") private var axisRaw = SplitAxis.vertical.rawValue
-    @AppStorage("web.fraction") private var fraction = 0.5
-    @State private var fullscreen: FullscreenPane = .none
-    @State private var showManage = false
-
-    private var axis: SplitAxis { SplitAxis(rawValue: axisRaw) ?? .vertical }
 
     var body: some View {
-        VStack(spacing: 0) {
-            controlBar
-            TwoPaneSplit(axis: axis, fullscreen: fullscreen, fraction: $fraction) {
-                BrowserPaneView(pane: top, isFullscreen: fullscreen == .first) {
-                    fullscreen = (fullscreen == .first) ? .none : .first
-                }
-            } second: {
-                BrowserPaneView(pane: bottom, isFullscreen: fullscreen == .second) {
-                    fullscreen = (fullscreen == .second) ? .none : .second
-                }
-            }
-        }
-        .sheet(isPresented: $showManage) { manageSheet }
-    }
-
-    // MARK: 上部の操作バー
-    private var controlBar: some View {
-        HStack(spacing: 18) {
-            Button {
-                axisRaw = (axis == .vertical ? SplitAxis.horizontal : .vertical).rawValue
-            } label: {
-                Image(systemName: axis == .vertical ? "rectangle.split.1x2" : "rectangle.split.2x1")
-            }
-            Button { swapPanes() } label: {
-                Image(systemName: "arrow.up.arrow.down")
-            }
-            if fullscreen != .none {
-                Button { fullscreen = .none } label: {
-                    Image(systemName: "arrow.down.forward.and.arrow.up.backward")
-                }
-            }
-
-            Spacer()
-
-            Menu {
-                Section("開く") {
-                    ForEach(bookmarks.pairs) { pair in
-                        Button(pair.name) { apply(pair) }
-                    }
-                }
-                Section {
-                    Button { saveCurrent() } label: { Label("現在のペアを保存", systemImage: "plus") }
-                    Button { showManage = true } label: { Label("管理…", systemImage: "slider.horizontal.3") }
-                }
-            } label: {
-                Image(systemName: "bookmark")
-            }
-        }
-        .font(.system(size: 18))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.thinMaterial)
-    }
-
-    // MARK: ブックマーク管理シート
-    private var manageSheet: some View {
-        NavigationView {
-            List {
-                if bookmarks.pairs.isEmpty {
-                    Text("保存されたブックマークはありません").foregroundStyle(.secondary)
-                }
-                ForEach($bookmarks.pairs) { $pair in
-                    VStack(alignment: .leading, spacing: 2) {
-                        TextField("名前", text: $pair.name)
-                        Text("↑ \(pair.top)").font(.caption2).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.middle)
-                        Text("↓ \(pair.bottom)").font(.caption2).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.middle)
-                    }
-                }
-                .onDelete { bookmarks.remove(at: $0) }
-            }
-            .navigationTitle("ブックマーク")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完了") { showManage = false }
-                }
-            }
+        // 独立した操作バーは持たず、入れ替えボタンは上ペインのアドレスバーに統合（1段）
+        VSplit("web") {
+            BrowserPaneView(pane: top, isTop: true, zoomKey: "web.zoom.top", onSwap: swapPanes)
+        } bottom: {
+            BrowserPaneView(pane: bottom, isTop: false, zoomKey: "web.zoom.bottom")
         }
     }
 
-    // MARK: 操作
+    // 上下ペインの URL を入れ替える
     private func swapPanes() {
         let a = top.current
         let b = bottom.current
         top.load(b)
         bottom.load(a)
     }
-    private func apply(_ pair: BookmarkPair) {
-        top.load(pair.top)
-        bottom.load(pair.bottom)
-        fullscreen = .none
-    }
-    private func saveCurrent() {
-        let name = "\(hostName(top.current)) / \(hostName(bottom.current))"
-        bookmarks.add(BookmarkPair(name: name, top: top.current, bottom: bottom.current))
-    }
-    private func hostName(_ s: String) -> String {
-        (URL(string: s)?.host ?? s).replacingOccurrences(of: "www.", with: "")
-    }
 }
 
 // MARK: - 1ペインの UI（ツールバー + WebView + プログレス）
 struct BrowserPaneView: View {
     @ObservedObject var pane: BrowserPane
-    let isFullscreen: Bool
-    let onToggleFullscreen: () -> Void
+    let isTop: Bool
+    let onSwap: (() -> Void)?               // 指定時はツールバーに入れ替えボタンを表示
+    @AppStorage private var zoom: Double   // ページ拡大率（保存）
     @FocusState private var focused: Bool
+
+    init(pane: BrowserPane, isTop: Bool, zoomKey: String, onSwap: (() -> Void)? = nil) {
+        self._pane = ObservedObject(wrappedValue: pane)
+        self.isTop = isTop
+        self.onSwap = onSwap
+        self._zoom = AppStorage(wrappedValue: 1.0, zoomKey)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Button(action: pane.back) { Image(systemName: "chevron.backward") }
-                    .disabled(!pane.canGoBack)
-                Button(action: pane.forward) { Image(systemName: "chevron.forward") }
-                    .disabled(!pane.canGoForward)
-
-                TextField("検索 または URL", text: $pane.address)
-                    .textFieldStyle(.roundedBorder)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled(true)
-                    .keyboardType(.webSearch)
-                    .submitLabel(.go)
-                    .focused($focused)
-                    .onSubmit { pane.go(); focused = false }
-
-                Button(action: pane.reloadOrStop) {
-                    Image(systemName: pane.isLoading ? "xmark" : "arrow.clockwise")
-                }
-                Button(action: onToggleFullscreen) {
-                    Image(systemName: isFullscreen
-                          ? "arrow.down.forward.and.arrow.up.backward"
-                          : "arrow.up.left.and.arrow.down.right")
-                }
-            }
-            .font(.system(size: 16))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(.thinMaterial)
-
+            if isTop { toolbar }        // 上ペインはバーを上に
             ZStack(alignment: .top) {
-                WebView(pane: pane)
+                WebView(pane: pane, zoom: zoom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if pane.isLoading {
                     ProgressView(value: pane.progress)
                         .progressViewStyle(.linear)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if !isTop { toolbar }       // 下ペインはバーを最下部に
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var toolbar: some View {
+        // すべて1行の HStack。URL欄は上限つき＆足りなければ縮むので必ず1行に収まる。
+        HStack(spacing: 6) {
+            if let onSwap { iconButton("arrow.up.arrow.down", action: onSwap) }
+            iconButton("chevron.backward", action: pane.back).disabled(!pane.canGoBack)
+            iconButton("chevron.forward", action: pane.forward).disabled(!pane.canGoForward)
+
+            TextField("検索 または URL", text: $pane.address)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .keyboardType(.webSearch)
+                .submitLabel(.go)
+                .focused($focused)
+                .onSubmit { pane.go(); focused = false }
+                .frame(maxWidth: 220)          // 狭め。残りが足りなければさらに縮む
+
+            iconButton(pane.isLoading ? "xmark" : "arrow.clockwise", action: pane.reloadOrStop)
+            iconButton("textformat.size.smaller", action: { zoom = max(0.5, zoom - 0.1) })
+                .disabled(zoom <= 0.5)
+            iconButton("textformat.size.larger", action: { zoom = min(3.0, zoom + 0.1) })
+                .disabled(zoom >= 3.0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.thinMaterial)
+    }
+
+    // 押しやすいよう大きめのタップ領域を持つアイコンボタン
+    private func iconButton(_ systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 17))
+                .frame(minWidth: 34, minHeight: 36)
+                .contentShape(Rectangle())
         }
     }
 }
@@ -232,6 +160,7 @@ final class BrowserPane: ObservableObject {
 // MARK: - WKWebView ラッパ（KVO で状態を同期）
 struct WebView: UIViewRepresentable {
     @ObservedObject var pane: BrowserPane
+    let zoom: Double
 
     // Google の埋め込みブラウザ判定を避けるための Safari UA（iOS更新時に数字を更新）
     static let safariUA =
@@ -253,7 +182,9 @@ struct WebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.attach(webView)
+        context.coordinator.textScale = zoom      // 文字のみ拡大（横幅維持）
         pane.webView = webView
+        AdBlock.shared.register(webView)          // 広告ブロック規則を適用
 
         if let url = BrowserPane.normalize(pane.address) {
             webView.load(URLRequest(url: url))
@@ -261,11 +192,20 @@ struct WebView: UIViewRepresentable {
         return webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) { }
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        let c = context.coordinator
+        c.textScale = zoom
+        if c.appliedScale != zoom {
+            c.appliedScale = zoom
+            c.applyTextScale(webView)
+        }
+    }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let pane: BrowserPane
         private var obs: [NSKeyValueObservation] = []
+        var textScale: Double = 1.0
+        var appliedScale: Double = -1
         init(pane: BrowserPane) { self.pane = pane }
 
         func attach(_ webView: WKWebView) {
@@ -295,6 +235,24 @@ struct WebView: UIViewRepresentable {
             ]
         }
 
+        // 文字だけを倍率変更（横幅は維持＝折り返しで縦に伸びる）。
+        // 各要素の元フォントサイズを覚えて倍率をかけ、後から増える要素にも
+        // MutationObserver で追従。1.0 のときは元に戻す。
+        func applyTextScale(_ webView: WKWebView) {
+            let js: String
+            if abs(textScale - 1.0) < 0.001 {
+                js = "(function(){if(window.__tsObs){window.__tsObs.disconnect();window.__tsObs=null;}var e=document.querySelectorAll('[data-ofs]');for(var i=0;i<e.length;i++){e[i].style.fontSize='';e[i].removeAttribute('data-ofs');}})();"
+            } else {
+                js = "(function(s){function a(){var e=document.querySelectorAll('*');for(var i=0;i<e.length;i++){var el=e[i];var o=el.getAttribute('data-ofs');if(o===null){o=getComputedStyle(el).fontSize;el.setAttribute('data-ofs',o);}var p=parseFloat(o);if(!isNaN(p)){el.style.fontSize=(p*window.__ts)+'px';}}}window.__ts=s;a();if(!window.__tsObs){var t;window.__tsObs=new MutationObserver(function(){clearTimeout(t);t=setTimeout(a,200);});window.__tsObs.observe(document.body||document.documentElement,{childList:true,subtree:true});}})(\(textScale));"
+            }
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            appliedScale = textScale
+            applyTextScale(webView)
+        }
+
         // target="_blank" 等の新規ウィンドウ要求を、同じ WebView で開く
         func webView(_ webView: WKWebView,
                      createWebViewWith configuration: WKWebViewConfiguration,
@@ -308,42 +266,4 @@ struct WebView: UIViewRepresentable {
     }
 }
 
-// MARK: - ブックマーク（2サイトの組）
-struct BookmarkPair: Identifiable, Codable, Equatable {
-    var id = UUID()
-    var name: String
-    var top: String
-    var bottom: String
-}
-
-final class BookmarkStore: ObservableObject {
-    @Published var pairs: [BookmarkPair] { didSet { save() } }
-    private let key = "web.bookmarks.v1"
-
-    init() {
-        if let data = UserDefaults.standard.data(forKey: key),
-           let decoded = try? JSONDecoder().decode([BookmarkPair].self, from: data) {
-            pairs = decoded
-        } else {
-            pairs = BookmarkStore.defaults
-        }
-    }
-
-    func add(_ p: BookmarkPair) { pairs.append(p) }
-    func remove(at offsets: IndexSet) { pairs.remove(atOffsets: offsets) }
-
-    private func save() {
-        if let data = try? JSONEncoder().encode(pairs) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
-    }
-
-    static let defaults = [
-        BookmarkPair(name: "Claude + Google ドキュメント",
-                     top: "https://claude.ai", bottom: "https://docs.google.com/document/u/0/"),
-        BookmarkPair(name: "Claude + Gmail",
-                     top: "https://claude.ai", bottom: "https://mail.google.com"),
-        BookmarkPair(name: "YouTube + Wikipedia",
-                     top: "https://m.youtube.com", bottom: "https://ja.m.wikipedia.org"),
-    ]
-}
+// （ブックマーク機能は削除済み）

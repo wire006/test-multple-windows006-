@@ -1,11 +1,12 @@
 import SwiftUI
 
-// MARK: - 実機用「上下/左右 2分割ビューア」アプリ本体
+// MARK: - 実機用「上下2分割ビューア」アプリ本体
 //
 // 1つのアプリで2つの用途を、上部セグメントで切り替え:
-//   1. 分割ブラウザ … 任意の2サイトを分割表示（既定: Claude と Google ドキュメント）… WebSplit.swift
-//   2. PDF×2       … Files に保存した PDF を2つ分割表示 … DocsSplit.swift
+//   1. 分割ブラウザ … 任意の2サイトを上下に（WebSplit.swift）
+//   2. PDF×2       … Files に保存した PDF を2つ上下に（DocsSplit.swift）
 //
+// どちらも共通の VSplit（上ペインを一番上に固定・仕切りドラッグで高さ可変）を使用。
 // セットアップ手順は ios-native/README.md を参照。
 
 @main
@@ -17,17 +18,18 @@ struct SplitViewApp: App {
 
 struct RootView: View {
     enum Mode: Int, CaseIterable, Identifiable {
-        case web, files
+        case text, files, web    // 先頭 = 既定。テキストを最初に開く
         var id: Int { rawValue }
         var label: String {
             switch self {
-            case .web:   return "分割ブラウザ"
+            case .text:  return "テキスト×2"
             case .files: return "PDF×2"
+            case .web:   return "分割ブラウザ"
             }
         }
     }
 
-    @State private var mode: Mode = .web
+    @State private var mode: Mode = .text   // 既定はテキスト
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,93 +37,75 @@ struct RootView: View {
                 ForEach(Mode.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
-            .padding(6)
+            .padding([.top, .horizontal], 6)
 
             // 両方を常にマウントしたまま表示だけ切り替える
             // （ブラウザのログインセッションや PDF の選択状態を維持するため）
             ZStack {
-                WebSplit()
-                    .opacity(mode == .web ? 1 : 0)
-                    .allowsHitTesting(mode == .web)
+                TextSplit()
+                    .opacity(mode == .text ? 1 : 0)
+                    .allowsHitTesting(mode == .text)
                 DocsSplit()
                     .opacity(mode == .files ? 1 : 0)
                     .allowsHitTesting(mode == .files)
+                WebSplit()
+                    .opacity(mode == .web ? 1 : 0)
+                    .allowsHitTesting(mode == .web)
             }
         }
+        .onAppear { AdBlock.shared.start() }   // 広告ブロック（AdGuard日本語/ベース + EasyList）を起動時に読み込み
     }
 }
 
-// MARK: - 分割の向き / 全画面状態
-enum SplitAxis: String { case vertical, horizontal }   // vertical = 上下 / horizontal = 左右
-enum FullscreenPane { case none, first, second }
-
-// MARK: - 汎用: 2ペイン分割（上下・左右対応、片側全画面対応、ドラッグ仕切り）
+// MARK: - 汎用: 上下2分割（上ペインを一番上に固定・仕切りドラッグで高さ可変）
 //
-// first / second はビューツリー内で「1回だけ」参照し、向き・全画面の切替では
-// frame と offset の数値だけを変える。こうすると WKWebView が再生成されず、
-// 開いているページ（ログイン状態やスクロール位置）が維持される。
-struct TwoPaneSplit<First: View, Second: View>: View {
-    let axis: SplitAxis
-    let fullscreen: FullscreenPane
-    @Binding var fraction: Double            // 1つ目のペインが占める割合（0.15〜0.85）
-    @ViewBuilder var first: First
-    @ViewBuilder var second: Second
+// シンプルな VStack。上ペインは指定高さぶんを一番上から占め、仕切りをドラッグすると
+// その高さ（＝下ペインの大きさ）が変わる。中央寄せの余白は出ない。
+// 仕切りは固定座標系での指の絶対位置で決めるため、発振（画面が上下に暴れる）しない。
+struct VSplit<Top: View, Bottom: View>: View {
+    private let top: Top
+    private let bottom: Bottom
+    private let space: String
+    @AppStorage private var topFraction: Double   // 分割比率を保存（次回起動時に復元）
+    private let dividerH: CGFloat = 16
 
-    private let dividerT: CGFloat = 14
-    @State private var dragStart: Double? = nil
+    init(_ storageKey: String, @ViewBuilder top: () -> Top, @ViewBuilder bottom: () -> Bottom) {
+        self.top = top()
+        self.bottom = bottom()
+        self.space = "VSplit." + storageKey
+        self._topFraction = AppStorage(wrappedValue: 0.5, "split." + storageKey)
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let W = geo.size.width
-            let H = geo.size.height
-            let isV = axis == .vertical
-            let showDivider = fullscreen == .none
-            let axisTotal = isV ? H : W
-            let usable = max(0, axisTotal - (showDivider ? dividerT : 0))
-            let clamped = min(max(0.15, fraction), 0.85)
-            let firstAxis: CGFloat = fullscreen == .first ? axisTotal
-                                   : (fullscreen == .second ? 0 : usable * CGFloat(clamped))
-            let dividerAxis: CGFloat = showDivider ? dividerT : 0
-            let secondAxis = max(0, axisTotal - firstAxis - dividerAxis)
+            let usable = max(1, geo.size.height - dividerH)
+            let topH = min(max(120, usable * topFraction), max(120, usable - 120))
 
-            ZStack(alignment: .topLeading) {
-                first
-                    .frame(width: isV ? W : firstAxis, height: isV ? firstAxis : H)
-                    .offset(x: 0, y: 0)
+            VStack(spacing: 0) {
+                top
+                    .frame(height: topH)
+                    .clipped()
 
-                if showDivider {
-                    dividerView(total: axisTotal)
-                        .frame(width: isV ? W : dividerAxis, height: isV ? dividerAxis : H)
-                        .offset(x: isV ? 0 : firstAxis, y: isV ? firstAxis : 0)
+                ZStack {
+                    Color(.systemGray5)
+                    Capsule().fill(Color(.systemGray)).frame(width: 44, height: 5)
                 }
+                .frame(maxWidth: .infinity)
+                .frame(height: dividerH)
+                .contentShape(Rectangle())
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .named(space))
+                        .onChanged { v in
+                            topFraction = min(0.85, max(0.15, Double(v.location.y) / Double(usable)))
+                        }
+                )
 
-                second
-                    .frame(width: isV ? W : secondAxis, height: isV ? secondAxis : H)
-                    .offset(x: isV ? 0 : firstAxis + dividerAxis,
-                            y: isV ? firstAxis + dividerAxis : 0)
+                bottom
+                    .frame(maxHeight: .infinity)
+                    .clipped()
             }
-            .frame(width: W, height: H)
+            .coordinateSpace(name: space)
         }
-    }
-
-    private func dividerView(total: CGFloat) -> some View {
-        ZStack {
-            Color(.systemGray5)
-            Capsule().fill(Color(.systemGray))
-                .frame(width: axis == .vertical ? 44 : 5,
-                       height: axis == .vertical ? 5 : 44)
-        }
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    if dragStart == nil { dragStart = fraction }
-                    let moved = axis == .vertical ? value.translation.height : value.translation.width
-                    let delta = Double(moved) / Double(max(1, total))
-                    fraction = min(0.85, max(0.15, (dragStart ?? fraction) + delta))
-                }
-                .onEnded { _ in dragStart = nil }
-        )
     }
 }
 
@@ -145,7 +129,7 @@ struct PaneBar: View {
             Button("選択", action: onPick).buttonStyle(.bordered)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)          // 名前バーの上下幅を薄く（6→4）
         .background(.thinMaterial)
     }
 }
